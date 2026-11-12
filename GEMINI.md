@@ -1,0 +1,2 @@
+- Never read, search, or edit compiled build artifacts in `out/` (`.js`, `.js.map`, etc).
+- When working on the project use the TypeScript source files in `src/`.

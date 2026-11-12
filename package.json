@@ -1,0 +1,65 @@
+{
+  "name": "regularexpresso",
+  "displayName": "RegExpresso - Natural Language to Regex",
+  "description": "Deterministic natural language to regex compiler, multi-caret selector, and multi-step replacement engine.",
+  "version": "1.0.0",
+  "publisher": "RegExpresso",
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BIRD-COMMAND/RegExpresso"
+  },
+  "categories": [
+    "Other",
+    "Formatters"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "regularexpresso.openBar",
+        "title": "RegExpresso: Natural Language Find & Replace"
+      },
+      {
+        "command": "regularexpresso.historyPrevious",
+        "title": "RegExpresso: Previous Query in History"
+      },
+      {
+        "command": "regularexpresso.historyNext",
+        "title": "RegExpresso: Next Query in History"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "regularexpresso.openBar",
+        "key": "alt+f",
+        "mac": "cmd+alt+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "regularexpresso.historyPrevious",
+        "key": "shift+up",
+        "when": "regularexpresso.barVisible"
+      },
+      {
+        "command": "regularexpresso.historyNext",
+        "key": "shift+down",
+        "when": "regularexpresso.barVisible"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npx @vscode/vsce package --allow-star-activation"
+  },
+  "devDependencies": {
+    "@types/node": "^20.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
