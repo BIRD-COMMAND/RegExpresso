@@ -2,7 +2,7 @@
   "name": "regularexpresso",
   "displayName": "RegExpresso - Natural Language to Regex",
   "description": "Deterministic natural language to regex compiler, multi-caret selector, and multi-step replacement engine.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "RegExpresso",
   "license": "AGPL-3.0-only",
   "engines": {
