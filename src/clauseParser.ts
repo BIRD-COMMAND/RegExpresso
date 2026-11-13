@@ -49,25 +49,29 @@ export interface ParsedQuery {
 }
 
 /**
- * Masks quoted strings (`...`, "...", '...') with __Q0__, __Q1__, etc.
+ * Masks quoted strings and raw regex tokens:
+ * - Backticks (`...`) and tildes (~...~) are masked as __R0__, __R1__, ... (raw regex / code tokens)
+ * - Double quotes ("...") and single quotes ('...') are masked as __Q0__, __Q1__, ... (literal strings)
  * Avoids matching apostrophes inside contractions (don't, isn't, it's) or possessives.
  */
 export function maskQuotedLiterals(input: string): { masked: string; quotes: string[] } {
   const quotes: string[] = [];
-  const quoteRegex = /`([^`\r\n]+)`|"([^"\r\n]+)"|(?<![a-zA-Z0-9])'([^'\r\n]+)'(?![a-zA-Z0-9])/g;
+  const quoteRegex =
+    /`([^`\r\n]+)`|~([^~\r\n]+)~|"([^"\r\n]+)"|(?<![a-zA-Z0-9])'([^'\r\n]+)'(?![a-zA-Z0-9])/g;
 
-  const masked = input.replace(quoteRegex, (_full, bq, dq, sq) => {
-    const val = bq ?? dq ?? sq;
+  const masked = input.replace(quoteRegex, (_full, bq, tq, dq, sq) => {
+    const val = bq ?? tq ?? dq ?? sq;
     const idx = quotes.length;
     quotes.push(val);
-    return `__Q${idx}__`;
+    const isRawRegexToken = bq !== undefined || tq !== undefined;
+    return isRawRegexToken ? `__R${idx}__` : `__Q${idx}__`;
   });
 
   return { masked, quotes };
 }
 
 export function unmaskQuotes(text: string, quotes: string[]): string {
-  return text.replace(/__Q(\d+)__/g, (_m, idxStr) => {
+  return text.replace(/__[QR](\d+)__/g, (_m, idxStr) => {
     const idx = parseInt(idxStr, 10);
     return quotes[idx] ?? _m;
   });
@@ -75,16 +79,16 @@ export function unmaskQuotes(text: string, quotes: string[]): string {
 
 export function parseCaseTransformMode(phrase: string, quotes: string[]): CaseTransformMode | null {
   const raw = unmaskQuotes(phrase, quotes).trim();
-  if (/^(?:camelcase|camel\s+case)$/i.test(raw)) return 'camelCase';
-  if (/^(?:pascalcase|pascal\s+case)$/i.test(raw)) return 'PascalCase';
-  if (/^(?:screaming_snake_case|screaming\s+snake\s+case|upper_snake_case|upper\s+snake\s+case|constant\s+case)$/i.test(raw)) {
+  if (/^(?:camelcase|camel\s+case|camel_case)$/i.test(raw)) return 'camelCase';
+  if (/^(?:pascalcase|pascal\s+case|pascal_case)$/i.test(raw)) return 'PascalCase';
+  if (/^(?:screaming_snake_case|screaming\s+snake\s+case|upper_snake_case|upper\s+snake\s+case|constant\s+case|cap\s+snake\s+case|cap_snake_case)$/i.test(raw)) {
     return 'SCREAMING_SNAKE_CASE';
   }
   if (/^(?:snake_case|snake\s+case)$/i.test(raw)) return 'snake_case';
-  if (/^(?:kebab-case|kebab\s+case|dash-case|dash\s+case)$/i.test(raw)) return 'kebab-case';
-  if (/^(?:title\s*case|capitalized)$/i.test(raw)) return 'title';
-  if (/^(?:uppercase|upper\s+case|all\s+caps|caps|capitals?)$/i.test(raw)) return 'upper';
-  if (/^(?:lowercase|lower\s+case|small\s+letters?)$/i.test(raw)) return 'lower';
+  if (/^(?:kebab-case|kebab\s+case|kebab_case|dash-case|dash\s+case|dash_case)$/i.test(raw)) return 'kebab-case';
+  if (/^(?:title\s*case|title_case|capitalized)$/i.test(raw)) return 'title';
+  if (/^(?:uppercase|upper\s+case|upper_case|all\s+caps|caps|capitals?)$/i.test(raw)) return 'upper';
+  if (/^(?:lowercase|lower\s+case|lower_case|small\s+letters?)$/i.test(raw)) return 'lower';
   return null;
 }
 
@@ -215,7 +219,7 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
 
   // 6. Strip inline illustrative examples ", like <title>Home</title>," when preceded by a noun
   working = working
-    .replace(/,\s*(?:like|such\s+as|for\s+example|e\.g\.)\s+__Q\d+__\s*,?/gi, ' ')
+    .replace(/,\s*(?:like|such\s+as|for\s+example|e\.g\.)\s+__[QR]\d+__\s*,?/gi, ' ')
     .replace(/\s+\((?:like|such\s+as|e\.g\.)\s+[^)]+\)/gi, '')
     .trim();
 
@@ -227,7 +231,7 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
 
   // 8. Extract middle-of-word location constraint (Example #20)
   if (/,?\s*(?:but\s+)?(?:only\s+)?(?:when|if|where)\s+(?:they|it)\s+(?:appear|appears|is|are|occur|occurs)\s+(?:in\s+the\s+middle\s+of\s+a\s+word|inside\s+a\s+word)/i.test(working) ||
-      /\bin\s+the\s+middle\s+of\s+a\s+word\b|\binside\s+a\s+word\b/i.test(working)) {
+    /\bin\s+the\s+middle\s+of\s+a\s+word\b|\binside\s+a\s+word\b/i.test(working)) {
     locationHint = 'middle-of-word';
     working = working
       .replace(/,?\s*(?:but\s+)?(?:only\s+)?(?:when|if|where)\s+(?:they|it)\s+(?:appear|appears|is|are|occur|occurs)\s+(?:in\s+the\s+middle\s+of\s+a\s+word|inside\s+a\s+word).*$/i, '')
@@ -372,15 +376,15 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     preferredAction = 'select-matches';
   }
 
-  // 12. Check Compound "Find <X> and delete/replace <Y>"
+  // 12. Check Compound "Find <X> and delete/replace/wrap <Y>"
   const findAndDeleteMatch = working.match(
-    /^(?:find|match|select|sel|locate|get|grab)\s+(.+?)\s+and\s+(?:delete|del|rm|remove|strip|erase)\s+(.+)$/i
+    /^(?:find|fnd|match|select|sel|locate|get|grab)(?:(?:\s*\/\s*|\s+or\s+)(?:find|fnd|match|select|sel|locate|get|grab))?\s+(.+?)\s+and\s+(?:delete|del|rm|remove|strip|erase)(?:\s+(.+))?$/i
   );
   if (findAndDeleteMatch) {
     const targetPart = findAndDeleteMatch[1].trim();
-    const deleteTarget = findAndDeleteMatch[2].trim();
+    const deleteTarget = (findAndDeleteMatch[2] ?? 'it').trim();
     // Example #9: "Find any word that is accidentally typed twice in a row and delete the second one"
-    if (/^(?:the\s+second\s+one|the\s+duplicate|the\s+repeated\s+one|it|them)$/i.test(deleteTarget)) {
+    if (/^(?:the\s+second\s+one|the\s+duplicate|the\s+repeated\s+one|it|them|all\s+of\s+them|matches?)$/i.test(deleteTarget)) {
       return {
         raw,
         intent: 'DELETE',
@@ -398,7 +402,7 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
   }
 
   const findAndReplaceMatch = working.match(
-    /^(?:find|match|select|sel|locate|get|grab)\s+(.+?)\s+and\s+(?:replace|rep|sub|chg|change|substitute|turn)\s+(?:it\s+|them\s+)?(?:with|to|into|by)\s+(.+)$/i
+    /^(?:find|fnd|match|select|sel|locate|get|grab)(?:(?:\s*\/\s*|\s+or\s+)(?:find|fnd|match|select|sel|locate|get|grab))?\s+(.+?)\s+and\s+(?:replace|rep|sub|chg|change|substitute|turn)\s+(?:it\s+|them\s+|all\s+of\s+them\s+|matches?\s+)?(?:with|to|into|by)\s+(.+)$/i
   );
   if (findAndReplaceMatch) {
     return {
@@ -406,6 +410,25 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
       intent: 'REPLACE',
       targetClause: findAndReplaceMatch[1].trim(),
       replacementClause: findAndReplaceMatch[2].trim(),
+      conditions,
+      exclusionClause,
+      locationHint,
+      nonGreedyHint,
+      flags,
+      preferredAction: 'replace-all',
+      quotes
+    };
+  }
+
+  const findAndWrapMatch = working.match(
+    /^(?:find|fnd|match|select|sel|locate|get|grab)(?:(?:\s*\/\s*|\s+or\s+)(?:find|fnd|match|select|sel|locate|get|grab))?\s+(.+?)\s+and\s+(?:wrap|surround|enclose)\s+(?:it\s+|them\s+)?(?:in|with|inside|within)\s+(.+)$/i
+  );
+  if (findAndWrapMatch) {
+    return {
+      raw,
+      intent: 'WRAP',
+      targetClause: findAndWrapMatch[1].trim(),
+      replacementClause: findAndWrapMatch[2].trim(),
       conditions,
       exclusionClause,
       locationHint,
@@ -977,7 +1000,7 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
 
   // 20. Check FIND Intent (explicit find/match/select/sel/get/locate/give me verb, or bare noun phrase)
   const findVerbMatch = working.match(
-    /^(?:find|fnd|match|select|sel|locate|search\s+for|search|highlight|grab|get|give\s+me|show\s+me|show|look\s+for|pick|identify|capture|extract)\s+(.+)$/i
+    /^(?:find|fnd|match|select|sel|locate|search\s+for|search|highlight|grab|get|give\s+me|show\s+me|show|look\s+for|pick|identify|capture|extract)(?:(?:\s*\/\s*|\s+or\s+)(?:find|fnd|match|select|sel|locate|get|grab))?\s+(.+)$/i
   );
   const targetClause = findVerbMatch ? findVerbMatch[1].trim() : working;
 

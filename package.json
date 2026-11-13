@@ -30,6 +30,10 @@
       {
         "command": "regularexpresso.historyNext",
         "title": "RegExpresso: Next Query in History"
+      },
+      {
+        "command": "regularexpresso.closeBar",
+        "title": "RegExpresso: Close Bar"
       }
     ],
     "keybindings": [
@@ -47,6 +51,11 @@
       {
         "command": "regularexpresso.historyNext",
         "key": "shift+down",
+        "when": "regularexpresso.barVisible"
+      },
+      {
+        "command": "regularexpresso.closeBar",
+        "key": "escape",
         "when": "regularexpresso.barVisible"
       }
     ]

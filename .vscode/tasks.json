@@ -54,6 +54,36 @@
         "panel": "shared"
       },
       "problemMatcher": []
-    }
+    },
+    {
+      "label": "Rollback Last Release",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        "$ErrorActionPreference = 'Stop';",
+        "if (git status --porcelain) { throw 'Working tree has uncommitted changes. Stash or commit them first.' };",
+        "$lastTag = git describe --tags --abbrev=0 2>$null;",
+        "if (-not $lastTag) { throw 'No tags found to roll back.' };",
+        "Write-Host ('Rolling back release ' + $lastTag + '...') -ForegroundColor Yellow;",
+        "gh release delete $lastTag --yes --cleanup-tag;",
+        "if ($LASTEXITCODE -ne 0) { throw 'Failed to delete GitHub release.' };",
+        "git tag -d $lastTag;",
+        "git reset --hard HEAD~1;",
+        "git push --force-with-lease origin main;",
+        "if ($LASTEXITCODE -ne 0) { throw 'Force push failed.' };",
+        "git reset --soft HEAD~1;",
+        "Write-Host 'Rollback complete. Previous commit changes are staged and ready.' -ForegroundColor Green"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
   ]
 }

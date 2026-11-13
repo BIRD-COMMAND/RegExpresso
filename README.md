@@ -46,7 +46,7 @@ Even if you know regex by heart, typing `^(?<!;)(\s*)$` or managing capture grou
 2. Type what you want to find, select, delete, or replace.
    - As you type, RegExpresso highlights every match in the active editor and renders inline `→ preview` annotations showing the exact result of replacements or deletions.
 3. Press **`Enter`** to execute the top action (automatically chosen based on your verb: **Replace All** for `replace`/`delete`/`add`/`wrap`, or **Select All Matches with Multi-Caret** for `find`/`select`), or use **`Up` / `Down`** to pick another execution mode.
-4. The RegExpresso bar stays open and focused so you can chain multiple edits in seconds. Use **`Shift+Up` / `Shift+Down`** to cycle through your session query history, or press **`Esc`** to dismiss the bar.
+4. The RegExpresso bar stays open and focused so you can chain multiple edits in seconds, and **remembers its active/inactive visibility and query text per editor tab** as you switch between files (via mouse click or `Ctrl+Tab`). Use **`Shift+Up` / `Shift+Down`** to cycle through your session query history, or press **`Esc`** to dismiss the bar for the current tab.
 
 ---
 
@@ -71,8 +71,10 @@ RegExpresso understands both descriptive sentences and concise shorthand command
 | Replace characters | `"Replace all slashes with tabs"` | `rep slashes with tabs` | `[/\\]` | `\t` |
 | Ensure trailing char | `"Add a semicolon to the end of every line that doesn't have one"` | `ensure trailing ;` | `^([^\r\n]*?\S)(?<!;)([ \t]*)$` | `$1;$2` |
 | Delete trailing chars | `"Delete the last 4 characters of every line"` | `rm last 4 per` | `.{4}$` | *(empty)* |
-| Select inside quotes | `"Select text inside quotation marks"` | `sel between quotes` | `(?<=..."..."...)[^"\r\n]+(?=")\|...` | — |
-| Select full strings | `"Select all quoted string literals"` | `sel strings` / `sel quotations` | `(?:"[^"\r\n]*"\|'[^'\r\n]*')` | — |
+| Select inside quotes | `"Select text inside quotation marks"` | `sel quoted` / `sel quoted text` | `(?<=..."..."...)[^"\r\n]+(?=")\|...` | — |
+| Select full strings | `"Select all quoted string literals"` | `sel strings` / `sel quote blocks` | `(?:"[^"\r\n]*"\|'[^'\r\n]*')` | — |
+| Select delimited blocks | `"Select groups in brackets including brackets"` | `sel bracket blocks` / `sel brace blocks` | `\[[^\]\r\n]*\]` / `\{[^}\r\n]*\}` | — |
+| Direct inline regex | `"Match \w+ and replace it with tabs"` | ``rep `\w+` with \t`` / `rep \w+ with tabs` | `\w+` | `\t` |
 | Select uppercase runs | `"Select all capital letters"` | `sel caps` | `[A-Z]+` | — |
 | Whole-word replace | `"Change whole words that say cat to dog"` | `rep word cat with dog` | `\bcat\b` | `dog` |
 | Capitalize lines | `"Capitalize the very first letter of every line"` | `cap first per` | `^(.)` | `\U$1` |
@@ -89,7 +91,10 @@ RegExpresso understands both descriptive sentences and concise shorthand command
 - **Wrap / Enclose**: `wrap <X> in <Y>`, `put <Y> around <X>`, `surround <X> with <Y>`
 - **Case Transform**: `capitalize`, `cap`, `uppercase`, `upper`, `lowercase`, `lower`, `make <X> camelCase / snake_case / Title Case`
 - **Positional & Scope Keywords**: `leading <X>` (start of line), `trailing <Y>` (end of line), `per` / `per line` / `per-line` (`on every line`), `after <X>` / `preceded by <X>` (lookbehind), `before <X>` / `followed by <X>` (lookahead).
-- **Inner Content vs. Full Strings**: `select inside quotes` / `select between quotes` selects only the characters *between* the quotation marks, whereas `select strings` / `select quotations` includes the surrounding quotation marks.
+- **Inner Content (`quoted`, `bracketed`) vs. Delimited Blocks (`block` / `blocks`)**:
+  - `select quoted` / `select quoted text` / `select inside quotes` / `select parenthesized text` / `select bracketed text` / `select braced text` selects only the characters *between* the delimiters (excluding the delimiters themselves).
+  - `select quotation mark blocks` / `select quote blocks` (equivalent to `select strings` / `select quotations`), `select bracket blocks` (`\[[^\]\r\n]*\]`), `select brace blocks` (`\{[^}\r\n]*\}`), `select paren blocks` (`\([^)\r\n]*\)`), `select angle bracket blocks` (`<[^>\r\n]*>`), and `select backtick blocks` select the entire group *including* its surrounding delimiters.
+- **Direct Regular Expressions & Escape Sequences**: Power users can type character classes, escape sequences, and regex patterns directly in queries (e.g. `select \w+`, `replace \w+ with tabs`, `replace numbers with \t\t`, `find [a-z0-9_]+`, `delete \d{2,4}`) or enclose complex inline regexes in backticks (`` `\w+` ``), tildes (`~\w+~`), or slashes (`/\w+/`). Tabs in replacement previews render visibly with the `⇥` glyph (e.g. `→ ⇥⇥`).
 
 ![Structural Reformatting: SCREAMING_SNAKE_CASE to camelCase](.readme_gifs/CaseConvenience.gif)
 

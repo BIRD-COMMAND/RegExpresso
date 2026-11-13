@@ -1,5 +1,4 @@
 # Nominated for best .gitignore file 1997
-# Source: trust me bro
 
 # Dependencies & build output
 node_modules/
@@ -10,6 +9,7 @@ out/
 *.tsbuildinfo
 
 # OS / editor noise
+*.code-workspace
 Thumbs.db
 .DS_Store
 *.log

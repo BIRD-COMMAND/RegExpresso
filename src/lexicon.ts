@@ -323,8 +323,8 @@ export const LEXICON_ENTRIES: LexiconEntry[] = [
   {
     id: 'double-quoted-strings',
     label: 'double-quoted strings',
-    exactMatcher: /^(?:double[- ]quoted\s+(?:strings?|text|quotations?|literals?))$/i,
-    keywordMatcher: /\bdouble[- ]quoted\s+(?:strings?|text|quotations?)\b/i,
+    exactMatcher: /^(?:double[- _]quoted\s+(?:strings?|quotations?|literals?))$/i,
+    keywordMatcher: /\bdouble[- _]quoted\s+(?:strings?|quotations?|literals?)\b/i,
     findPattern: '"[^"\\r\\n]*"',
     singleUnitPattern: '"[^"\\r\\n]*"',
     features: ['Double-quoted string ("[^"\\r\\n]*")']
@@ -332,8 +332,8 @@ export const LEXICON_ENTRIES: LexiconEntry[] = [
   {
     id: 'single-quoted-strings',
     label: 'single-quoted strings',
-    exactMatcher: /^(?:single[- ]quoted\s+(?:strings?|text|quotations?|literals?))$/i,
-    keywordMatcher: /\bsingle[- ]quoted\s+(?:strings?|text|quotations?)\b/i,
+    exactMatcher: /^(?:single[- _]quoted\s+(?:strings?|quotations?|literals?))$/i,
+    keywordMatcher: /\bsingle[- _]quoted\s+(?:strings?|quotations?|literals?)\b/i,
     findPattern: "'[^'\\r\\n]*'",
     singleUnitPattern: "'[^'\\r\\n]*'",
     features: ["Single-quoted string ('[^'\\r\\n]*')"]
@@ -341,7 +341,7 @@ export const LEXICON_ENTRIES: LexiconEntry[] = [
   {
     id: 'strings',
     label: 'quoted strings / quotations (including quote marks)',
-    exactMatcher: /^(?:strings?|quotations?|quoted\s+(?:strings?|text|words?|values?|items?)|string\s+literals?)$/i,
+    exactMatcher: /^(?:strings?|quotations?|quoted\s+strings?|quoted_strings?|string\s+literals?|string_literals?)$/i,
     keywordMatcher: /\b(?:strings?|quotations?|quoted\s+strings?|string\s+literals?)\b/i,
     findPattern: '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')',
     singleUnitPattern: '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')',

@@ -34,12 +34,13 @@ Unlike AI-assisted tools that send code snippets to remote servers and suffer fr
 ### Live Editor Feedback
 As you type a query into the RegExpresso bar:
 - **Match Highlighting**: Every matched span in the active editor is highlighted in real time using your theme's `editor.findMatchHighlightBackground` and `editor.findMatchBorder` colors.
-- **Inline Replacement Previews**: Whenever a query includes a replacement or deletion, an inline code-lens style annotation (`→ replacement` or `→ ∅ (deleted)`) appears immediately after each match in the editor so you can verify the exact output before committing.
+- **Inline Replacement Previews**: Whenever a query includes a replacement or deletion, an inline code-lens style annotation (`→ replacement`, `→ ∅ (deleted)`, `→ ⇥` for tabs, `→ ↵` for newlines, or `→ ····` for spaces) appears immediately after each match in the editor so you can verify the exact output before committing.
 
-### Continuous Execution & History
+### Continuous Execution, History & Per-Tab State Persistence
 - Pressing **`Enter`** executes the selected action and **keeps the RegExpresso bar open**, clearing the input box so you can immediately type a follow-up operation.
+- **Per-Tab Persistent State**: RegExpresso tracks whether its UI bar is active/open and stores the current query text independently for each editor tab for the lifetime of the IDE session. Switching between tabs (whether by clicking a tab with the mouse or pressing `Ctrl+Tab` / `Ctrl+Shift+Tab`) automatically restores the target tab's RegExpresso visibility and query text.
 - Pressing **`Shift+Up`** and **`Shift+Down`** (or clicking the `↑` / `↓` buttons in the top-right corner of the bar) cycles through all queries submitted during the current VS Code session. Any unsubmitted draft text currently in the box is preserved when you cycle back down.
-- Pressing **`Esc`** closes the RegExpresso bar and returns keyboard focus to the editor (leaving any multi-caret selections active).
+- Pressing **`Esc`** closes the RegExpresso bar for the current tab and returns keyboard focus to the editor (leaving any multi-caret selections active).
 
 ---
 
@@ -292,14 +293,30 @@ Every entry below can be used in **Find/Select**, **Delete**, **Replace (Target 
 
 ---
 
-## 5. Literals: Quoted vs. Unquoted
+## 5. Literals & Direct Inline Regular Expressions
 
+### 5.1 Quoted vs. Unquoted Literals
 You do **not** need to wrap literal search or replacement strings in quotes unless the literal collides with a reserved keyword (such as `words`, `tabs`, `slashes`, `numbers`, `.`, or `*`):
 - `find foo` and `find "foo"` both compile to `/foo/g`.
 - `replace X with Y` and `replace "X" with "Y"` both compile to Find `/X/g`, Replace `Y`.
 - `delete TODO` compiles to Find `/TODO/g`, Replace `""`.
-- To match a literal keyword word (for example, the literal English word `"tabs"` or `"numbers"` or `"."`), enclose it in quotes (`"tabs"`, `'numbers'`, `"."`) or prefix it with `the word` (`find the word tabs` → `/\btabs\b/g`).
-- Special regex metacharacters inside literals (such as `$`, `(`, `)`, `[`, `]`, `+`, `?`, `.`) are automatically escaped.
+- To match a literal keyword word (for example, the literal English word `"tabs"` or `"numbers"` or `"."`), enclose it in double or single quotes (`"tabs"`, `'numbers'`, `"."`) or prefix it with `the word` (`find the word tabs` → `/\btabs\b/g`).
+- Special regex metacharacters inside double- or single-quoted literals (such as `"."`, `"*"`, `"$100"`) are automatically escaped.
+
+### 5.2 Direct Regular Expressions, Character Classes & Escape Sequences
+Power users who know regular expressions can include character classes, escape sequences, and regex patterns directly inside RegExpresso queries:
+- **Direct Unwrapped Regexes & Shorthands**: Common escapes (`\w`, `\W`, `\d`, `\D`, `\s`, `\S`, `\t`, `\n`), quantified shorthands (`\w+`, `\d{2,4}`, `\s*`), character classes (`[a-z0-9_]+`, `[^,\r\n]+`), and groups (`(\w+)`) can be typed directly without delimiters:
+  - `select \w+` → `/\w+/g`
+  - `match \w+ and replace it with tabs` / `replace \w+ with tabs` → Find: `/\w+/g`, Replace: `\t`
+  - `replace numbers with \t\t` → Find: `/\d+/g`, Replace: `\t\t` (previews in-editor as `→ ⇥⇥`)
+  - `find [a-z0-9_]+` → `/[a-z0-9_]+/g`
+  - `delete \d{2,4}` → Find: `/\d{2,4}/g`, Replace: `""`
+  - `select 3 \w` / `select 3 [a-f0-9]` → `/\w{3}/g` / `/[a-f0-9]{3}/g`
+- **Backtick (`` `...` ``), Tilde (`~...~`), or Slash (`/.../`) Delimited Regexes**: For arbitrary or multi-part regular expressions (including spaces, alternations, or capture groups), wrap the pattern in backticks, tildes, or forward slashes:
+  - ``select `\w+` `` or `select ~\w+~` or `select /\w+/` → `/\w+/g`
+  - ``replace `\w+` with `\t` `` → Find: `/\w+/g`, Replace: `\t`
+  - `replace ~\d{2,4}~ with "#"` → Find: `/\d{2,4}/g`, Replace: `#`
+  - ``match `(\w+)=(\w+)` and replace it with `$2=$1` `` → Find: `/(\w+)=(\w+)/g`, Replace: `$2=$1`
 
 ---
 
@@ -383,24 +400,36 @@ RegExpresso supports arbitrary positive and negative lookarounds attached to any
 
 ---
 
-## 10. Delimited & Inner Text vs. Full Quoted Strings
+## 10. Delimited & Inner Text (`quoted`, `between`) vs. Full Delimited Blocks (`block` / `blocks`, `strings`)
 
-RegExpresso distinguishes cleanly between selecting **only the inner content** between delimiters versus selecting **full quoted strings including their quotation marks**:
+RegExpresso distinguishes cleanly between selecting **only the inner content** between delimiters versus selecting **full delimited groups including their surrounding delimiters**:
 
-- **Inner Content Only (Excludes Delimiters)**:
-  Queries using `inside`, `between`, `within`, or `enclosed in` use lookbehind and lookahead assertions so that `Select All Matches`, `Delete`, and `Replace` operate strictly on the text *between* the delimiters without touching the delimiters themselves:
-  - `select text inside quotation marks` / `select between quotes` / `select inside quotes` → `/((?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")|(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?='))/gm` *(even-pair lookbehind ensures gaps between multiple strings on the same line are never matched)*
-  - `select inside double quotes` → `/(?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")/gm`
-  - `select inside single quotes` → `/(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?=')/gm`
-  - `select inside parentheses` / `select between parens` → `/(?<=\()[^)\r\n]+(?=\))/g`
-  - `select inside square brackets` / `select between brackets` → `/(?<=\[)[^\]\r\n]+(?=\])/g`
-  - `select inside curly braces` / `select between braces` → `/(?<=\{)[^}\r\n]+(?=\})/g`
+- **Inner Content Only (Excludes Delimiters — `quoted`, `quoted text`, `inside`, `between`, `parenthesized`, `bracketed`, `braced`)**:
+  Queries using `quoted` / `quoted text` (or `double-quoted`, `single-quoted`, `backticked`, `parenthesized`, `parenthetical`, `bracketed`, `braced`, `angle-bracketed`), `inside`, `between`, `within`, or `enclosed in` use lookbehind and lookahead assertions so that `Select All Matches`, `Delete`, and `Replace` operate strictly on the text *between* the delimiters without touching the delimiters themselves:
+  - `select quoted` / `select quoted text` / `select text inside quotation marks` / `select between quotes` / `select inside quotes` → `/((?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")|(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?='))/gm` *(even-pair lookbehind ensures gaps between multiple strings on the same line are never matched)*
+  - `select double-quoted text` / `select inside double quotes` → `/(?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")/gm`
+  - `select single-quoted text` / `select inside single quotes` → `/(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?=')/gm`
+  - `select backticked text` / `select inside backticks` → `/(?<=^(?:[^`\r\n]*`[^`\r\n]*`)*[^`\r\n]*`)[^`\r\n]+(?=`)/gm`
+  - `select parenthesized` / `select parenthesized text` / `select inside parentheses` / `select between parens` → `/(?<=\()[^)\r\n]+(?=\))/g`
+  - `select bracketed` / `select bracketed text` / `select inside square brackets` / `select between brackets` → `/(?<=\[)[^\]\r\n]+(?=\])/g`
+  - `select braced` / `select braced text` / `select inside curly braces` / `select between braces` → `/(?<=\{)[^}\r\n]+(?=\})/g`
+  - `select angle-bracketed text` / `select inside angle brackets` → `/(?<=<)[^>\r\n]+(?=>)/g`
   - `find text between <A> and <B>` → `/(?<=<A>)[^\r\n]+?(?=<B>)/g`
-- **Full Quoted Strings (Includes Quotation Marks)**:
-  Use the **`string` / `strings`** or **`quotation` / `quotations`** keywords when you want the selection or replacement to include the surrounding quotation marks:
-  - `select strings` / `select quotations` → `/(?:"[^"\r\n]*"|'[^'\r\n]*')/g`
-  - `delete strings` / `delete quotations` → Find: `/(?:"[^"\r\n]*"|'[^'\r\n]*')/g`, Replace: `""`
-  - `select strings containing host` → `/(?:"[^"\r\n]*host[^"\r\n]*"|'[^'\r\n]*host[^'\r\n]*')/g`
+- **Full Delimited Groups (Includes Surrounding Delimiters — `block` / `blocks`, `strings`, `quotations`)**:
+  Use the **`block` / `blocks`** keyword with any delimiter type (or **`strings` / `quotations`** for quoted strings) to match the entire group *including* its opening and closing delimiters:
+  - `select quotation mark blocks` / `select quote blocks` / `select strings` / `select quotations` → `/(?:"[^"\r\n]*"|'[^'\r\n]*')/g`
+  - `select double quote blocks` / `select single quote blocks` → `/"[^"\r\n]*"/g` / `/'[^'\r\n]*'/g`
+  - `select backtick blocks` → `` /`[^`\r\n]*`/g ``
+  - `select bracket blocks` / `select square bracket blocks` / `select blocks in brackets` → `/\[[^\]\r\n]*\]/g`
+  - `select brace blocks` / `select curly brace blocks` / `select blocks in braces` → `/\{[^}\r\n]*\}/g`
+  - `select paren blocks` / `select parenthesis blocks` / `select blocks in parentheses` → `/\([^)\r\n]*\)/g`
+  - `select angle bracket blocks` / `select chevron blocks` → `/<[^>\r\n]*>/g`
+  - `select asterisk blocks` / `select pipe blocks` → `/\*[^*\r\n]*\*/g` / `/\|[^|\r\n]*\|/g`
+  - `select blocks` (any `(...)`, `[...]`, or `{...}` block) → `/(?:\([^)\r\n]*\)|\[[^\]\r\n]*\]|\{[^}\r\n]*\})/g`
+  - **Affix Filters on Blocks**: Combine `<delimiter> blocks` with `starting with`, `ending with`, `containing`, or `without`:
+    - `select bracket blocks containing foo` → `/\[[^\]\r\n]*foo[^\]\r\n]*\]/g`
+    - `delete brace blocks starting with a` → Find: `/\{a[^}\r\n]*\}/g`, Replace: `""`
+    - `select quote blocks ending with x` / `select strings containing host` → `/(?:"[^"\r\n]*x"|'[^'\r\n]*x')/g` / `/(?:"[^"\r\n]*host[^"\r\n]*"|'[^'\r\n]*host[^'\r\n]*')/g`
 - **HTML/XML Tags**:
   - `Find all text inside HTML tags, like <title>Home</title>, but only grab what's between the first opening and closing tag on the line` → Find: `/<([a-z]+)>(.*?)<\/\1>/gi`, Replace: `$2`
 
