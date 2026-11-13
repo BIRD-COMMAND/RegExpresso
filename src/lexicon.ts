@@ -311,12 +311,41 @@ export const LEXICON_ENTRIES: LexiconEntry[] = [
     features: ['Character class ([“”‘’])']
   },
   {
-    id: 'quoted-strings',
-    label: 'quoted strings',
-    exactMatcher: /^(?:quoted\s+(?:strings?|text|words?|values?|items?)|(?:strings?|text|words?|everything|anything)\s+(?:in|inside|within|between)\s+(?:double\s+|single\s+)?(?:quotes?|quotation\s+marks?))$/i,
-    findPattern: '(?:"[^"]*"|\'[^\']*\')',
-    singleUnitPattern: '(?:"[^"]*"|\'[^\']*\')',
-    features: ['Non-capturing alternation ((?:...))', 'Negated character class ([^"]*)']
+    id: 'empty-strings',
+    label: 'empty strings / empty quotations',
+    exactMatcher: /^(?:empty\s+(?:strings?|quotations?))$/i,
+    keywordMatcher: /\bempty\s+(?:strings?|quotations?)\b/i,
+    findPattern: '(?:""|\'\')',
+    singleUnitPattern: '(?:""|\'\')',
+    replaceLiteral: '""',
+    features: ['Empty string alternation ((?:""|\'\'))']
+  },
+  {
+    id: 'double-quoted-strings',
+    label: 'double-quoted strings',
+    exactMatcher: /^(?:double[- ]quoted\s+(?:strings?|text|quotations?|literals?))$/i,
+    keywordMatcher: /\bdouble[- ]quoted\s+(?:strings?|text|quotations?)\b/i,
+    findPattern: '"[^"\\r\\n]*"',
+    singleUnitPattern: '"[^"\\r\\n]*"',
+    features: ['Double-quoted string ("[^"\\r\\n]*")']
+  },
+  {
+    id: 'single-quoted-strings',
+    label: 'single-quoted strings',
+    exactMatcher: /^(?:single[- ]quoted\s+(?:strings?|text|quotations?|literals?))$/i,
+    keywordMatcher: /\bsingle[- ]quoted\s+(?:strings?|text|quotations?)\b/i,
+    findPattern: "'[^'\\r\\n]*'",
+    singleUnitPattern: "'[^'\\r\\n]*'",
+    features: ["Single-quoted string ('[^'\\r\\n]*')"]
+  },
+  {
+    id: 'strings',
+    label: 'quoted strings / quotations (including quote marks)',
+    exactMatcher: /^(?:strings?|quotations?|quoted\s+(?:strings?|text|words?|values?|items?)|string\s+literals?)$/i,
+    keywordMatcher: /\b(?:strings?|quotations?|quoted\s+strings?|string\s+literals?)\b/i,
+    findPattern: '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')',
+    singleUnitPattern: '(?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\')',
+    features: ['Quoted string alternation ((?:"[^"\\r\\n]*"|\'[^\'\\r\\n]*\'))']
   },
   {
     id: 'quotes',
@@ -755,6 +784,17 @@ export const LEXICON_ENTRIES: LexiconEntry[] = [
     singleUnitPattern: '\\d+\\.\\d+',
     supportsWordBoundary: true,
     features: ['Digit shorthand (\\d+)', 'Escaped decimal point (\\.)']
+  },
+  {
+    id: 'zeros',
+    label: 'zeros (0)',
+    exactMatcher: /^(?:zeros|zeroes|0s)$/i,
+    keywordMatcher: /\b(?:zeros|zeroes|0s)\b/i,
+    findPattern: '0+',
+    singleUnitPattern: '0',
+    charClassChars: '0',
+    replaceLiteral: '0',
+    features: ['Zero digit match (0+)']
   },
   {
     id: 'digits',

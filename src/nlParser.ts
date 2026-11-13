@@ -7,6 +7,8 @@ import {
   unmaskQuotes
 } from './clauseParser';
 import {
+  extractPerLineSuffix,
+  findLexiconEntry,
   resolveDelimiterOrLiteral,
   resolveReplacementClause,
   resolveTargetClause
@@ -48,13 +50,16 @@ function applyLookaroundsAndExclusions(
         features.push(`Negative lookbehind ((?<!${delim}))`);
         break;
       case 'followed-by':
-        pattern = `${pattern}(?=\\s*${delim})`;
-        features.push(`Positive lookahead ((?=\\s*${delim}))`);
+        pattern = `${pattern}(?=${delim})`;
+        features.push(`Positive lookahead ((?=${delim}))`);
         break;
-      case 'not-followed-by':
-        pattern = `${pattern}(?!\\s*${delim})`;
-        features.push(`Negative lookahead ((?!\\s*${delim}))`);
+      case 'not-followed-by': {
+        const useSpacePrefix = delim === '[:=]';
+        const lookaheadBody = useSpacePrefix ? `\\s*${delim}` : delim;
+        pattern = `${pattern}(?!${lookaheadBody})`;
+        features.push(`Negative lookahead ((?!${lookaheadBody}))`);
         break;
+      }
     }
   }
 
@@ -284,36 +289,104 @@ function handleWrapIntent(parsed: ParsedQuery): CompiledRegexResult {
   };
 }
 
-function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
+function handleEnsureIntent(parsed: ParsedQuery): CompiledRegexResult {
   const ins = resolveReplacementClause(parsed.replacementClause ?? '', parsed.quotes);
   const charToInsert = ins.replace;
   const escapedChar = escapeRegexLiteral(charToInsert);
 
   if (parsed.insertPosition === 'end-of-line') {
-    if (parsed.missingCheck) {
-      // Example #5: "Add a semicolon to the end of every line that doesn't have one."
-      return {
-        isPossible: true,
-        mode: 'replace',
-        summary: `Append '${charToInsert}' to the end of every line that does not already end with '${charToInsert}', preserving trailing whitespace.`,
-        steps: [
-          {
-            description: `Negative lookbehind (?<!${escapedChar}) before optional trailing whitespace and line end`,
-            find: `(?<!${escapedChar})(\\s*)$`,
-            replace: `${charToInsert}$1`,
-            flags: 'gm'
-          }
-        ],
-        featuresUsed: [
-          'Line end anchor ($)',
-          `Negative lookbehind ((?<!${escapedChar}))`,
-          'Whitespace preservation ($1)'
-        ],
-        confidence: 'high',
-        preferredAction: 'replace-all'
-      };
-    }
+    // Example #5 & "ensure trailing ;":
+    // Matches non-empty lines whose last non-whitespace character does not end with charToInsert,
+    // preserving any horizontal trailing whitespace [ \t]* without matching across \r or \n.
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: `Ensure every non-empty line ends with '${charToInsert}', preserving trailing horizontal whitespace.`,
+      steps: [
+        {
+          description: `Match non-empty lines not ending in '${charToInsert}' and append '${charToInsert}'`,
+          find: `^([^\\r\\n]*?\\S)(?<!${escapedChar})([ \\t]*)$`,
+          replace: `$1${charToInsert}$2`,
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: [
+        'Line start/end anchors (^...$)',
+        `Negative lookbehind ((?<!${escapedChar}))`,
+        'Horizontal whitespace preservation ([ \\t]*)'
+      ],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
 
+  if (parsed.insertPosition === 'start-of-line') {
+    const startsWithSpace = /^\s/.test(charToInsert);
+    const findPat = startsWithSpace
+      ? `^(?!${escapedChar})(?=[ \\t]*\\S)([^\\r\\n]+)$`
+      : `^([ \\t]*)(?!${escapedChar})(\\S[^\\r\\n]*)$`;
+    const replacePat = startsWithSpace ? `${charToInsert}$1` : `$1${charToInsert}$2`;
+
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: `Ensure every non-empty line starts with '${charToInsert}'.`,
+      steps: [
+        {
+          description: `Match non-empty lines not starting with '${charToInsert}' and prepend '${charToInsert}'`,
+          find: findPat,
+          replace: replacePat,
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: [
+        'Line start/end anchors (^...$)',
+        `Negative lookahead ((?!${escapedChar}))`,
+        'Backreference ($1)'
+      ],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  const target = resolveTargetClause(parsed.targetClause, parsed.quotes);
+  const isBefore = parsed.insertPosition === 'before-target';
+  const findPat = isBefore
+    ? `(?<!${escapedChar})(${target.pattern})`
+    : `(${target.pattern})(?!${escapedChar})`;
+  const replacePat = isBefore ? `${charToInsert}$1` : `$1${charToInsert}`;
+
+  return {
+    isPossible: true,
+    mode: 'replace',
+    summary: `Ensure '${charToInsert}' appears ${isBefore ? 'before' : 'after'} every ${target.label}.`,
+    steps: [
+      {
+        description: `Insert '${charToInsert}' ${isBefore ? 'before' : 'after'} ${target.label} when not already present`,
+        find: findPat,
+        replace: replacePat,
+        flags: buildFlagsString(parsed, target.needsMultiline, target.needsCaseInsensitive)
+      }
+    ],
+    featuresUsed: [
+      ...target.features,
+      isBefore ? `Negative lookbehind ((?<!${escapedChar}))` : `Negative lookahead ((?!${escapedChar}))`,
+      'Capture group ($1)'
+    ],
+    confidence: 'high',
+    preferredAction: 'replace-all'
+  };
+}
+
+function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
+  if (parsed.missingCheck) {
+    return handleEnsureIntent(parsed);
+  }
+
+  const ins = resolveReplacementClause(parsed.replacementClause ?? '', parsed.quotes);
+  const charToInsert = ins.replace;
+
+  if (parsed.insertPosition === 'end-of-line') {
     return {
       isPossible: true,
       mode: 'replace',
@@ -321,7 +394,7 @@ function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
       steps: [
         {
           description: `Match non-empty line and append '${charToInsert}'`,
-          find: '^(.+)$',
+          find: '^([^\\r\\n]*\\S[^\\r\\n]*)$',
           replace: `$1${charToInsert}`,
           flags: 'gm'
         }
@@ -333,29 +406,6 @@ function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
   }
 
   if (parsed.insertPosition === 'start-of-line') {
-    if (parsed.missingCheck) {
-      return {
-        isPossible: true,
-        mode: 'replace',
-        summary: `Prepend '${charToInsert}' to the start of every line that does not already start with '${charToInsert}'.`,
-        steps: [
-          {
-            description: `Negative lookahead (?!\\s*${escapedChar}) at start of line`,
-            find: `^(?!\\s*${escapedChar})(.+)$`,
-            replace: `${charToInsert}$1`,
-            flags: 'gm'
-          }
-        ],
-        featuresUsed: [
-          'Line start anchor (^)',
-          `Negative lookahead ((?!\\s*${escapedChar}))`,
-          'Backreference ($1)'
-        ],
-        confidence: 'high',
-        preferredAction: 'replace-all'
-      };
-    }
-
     return {
       isPossible: true,
       mode: 'replace',
@@ -363,7 +413,7 @@ function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
       steps: [
         {
           description: `Match start of non-empty line and prepend '${charToInsert}'`,
-          find: '^(.+)$',
+          find: '^([^\\r\\n]*\\S[^\\r\\n]*)$',
           replace: `${charToInsert}$1`,
           flags: 'gm'
         }
@@ -393,6 +443,235 @@ function handleInsertAddIntent(parsed: ParsedQuery): CompiledRegexResult {
       }
     ],
     featuresUsed: [...target.features, 'Capture group ($1)'],
+    confidence: 'high',
+    preferredAction: 'replace-all'
+  };
+}
+
+function resolveRepeatableTrimUnit(phrase: string, quotes: string[]): { quantPat: string; label: string; features: string[] } {
+  const { cleaned } = extractPerLineSuffix(phrase);
+  const stripped = cleaned.replace(/^(?:all\s+|every\s+|each\s+|the\s+|a\s+|an\s+)/i, '').trim();
+
+  const singleQuoteMatch = stripped.match(/^__Q(\d+)__$/);
+  if (singleQuoteMatch) {
+    const lit = quotes[parseInt(singleQuoteMatch[1], 10)];
+    const esc = escapeRegexLiteral(lit);
+    const quantPat = lit.length === 1 ? `${esc}+` : `(?:${esc})+`;
+    return { quantPat, label: `'${lit}'`, features: [`One-or-more quantifier (${quantPat})`] };
+  }
+
+  const entry = findLexiconEntry(stripped);
+  if (entry) {
+    const unit = entry.singleUnitPattern;
+    const isAtomic = /^(\\[dwsDWS]|\\.|[^\\[\]()|+?*{}]|\[[^\]]+\])$/.test(unit);
+    const quantPat = isAtomic ? `${unit}+` : `(?:${unit})+`;
+    return { quantPat, label: entry.label, features: [...entry.features, 'One-or-more quantifier (+)'] };
+  }
+
+  const resolved = resolveTargetClause(stripped, quotes);
+  const pat = resolved.pattern;
+  if (pat.endsWith('+') || pat.endsWith('*')) {
+    return { quantPat: pat, label: resolved.label, features: resolved.features };
+  }
+  const isAtomic = /^(\\[dwsDWS]|\\.|[^\\[\]()|+?*{}]|\[[^\]]+\])$/.test(pat);
+  const quantPat = isAtomic ? `${pat}+` : `(?:${pat})+`;
+  return { quantPat, label: resolved.label, features: [...resolved.features, 'One-or-more quantifier (+)'] };
+}
+
+function handleTrimIntent(parsed: ParsedQuery): CompiledRegexResult {
+  const rawClause = parsed.targetClause.trim();
+  const { cleaned } = extractPerLineSuffix(rawClause);
+  const target = unmaskQuotes(cleaned, parsed.quotes)
+    .replace(/^(?:all\s+|every\s+|each\s+|the\s+)/i, '')
+    .trim();
+
+  // 1. "trim blanks" / "trim empties" / "trim blank lines" / "trim empty lines"
+  if (/^(?:blanks?|empties|empty|blank\s+lines?|empty\s+lines?)$/i.test(target)) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Remove all blank or whitespace-only lines.',
+      steps: [
+        {
+          description: 'Match blank/empty lines including their line break and delete them',
+          find: '^\\s*\\r?\\n',
+          replace: '',
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: ['Line start anchor (^)', 'Whitespace shorthand (\\s*)', 'CRLF-safe newline (\\r?\\n)'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 2. "trim multiple/extra/duplicate blank lines"
+  if (/^(?:(?:multiple|extra|consecutive|duplicate|redundant)\s+(?:blank|empty)\s+lines?|(?:multiple|extra|consecutive)\s+(?:blanks|empties))$/i.test(target)) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Collapse multiple consecutive blank lines into a single blank line.',
+      steps: [
+        {
+          description: 'Match 3 or more consecutive line breaks and replace with 2 newlines',
+          find: '(\\r?\\n){3,}',
+          replace: '\\n\\n',
+          flags: 'g'
+        }
+      ],
+      featuresUsed: ['Lower-bound quantifier ({3,})', 'Newline escape (\\n)'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 3. "trim multiple/extra/duplicate spaces"
+  if (/^(?:(?:multiple|extra|consecutive|duplicate|redundant|double)\s+(?:spaces?|whitespace))$/i.test(target)) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Collapse multiple consecutive horizontal spaces into a single space.',
+      steps: [
+        {
+          description: 'Match 2 or more spaces/tabs and replace with a single space',
+          find: '[ \\t]{2,}',
+          replace: ' ',
+          flags: 'g'
+        }
+      ],
+      featuresUsed: ['Horizontal whitespace ([ \\t]{2,})'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 4. Default line whitespace trim: "trim", "trim lines", "trim whitespace", "trim spaces", "trim per", "trim leading and trailing whitespace"
+  if (
+    !target ||
+    /^(?:lines?|whitespace|white\s+space|spaces?|rows?|per|per[-\s]lines?|both\s+ends|leading\s+and\s+trailing(?:\s+(?:whitespace|spaces?))?|surrounding\s+(?:whitespace|spaces?))$/i.test(
+      target
+    )
+  ) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Trim leading and trailing horizontal whitespace from every line.',
+      steps: [
+        {
+          description: 'Match leading or trailing spaces/tabs on each line and delete them',
+          find: '^[ \\t]+|[ \\t]+$',
+          replace: '',
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: ['Line start/end anchors (^, $)', 'Alternation (|)', 'Horizontal whitespace ([ \\t]+)'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 5. Leading whitespace only: "trim leading", "trim leading whitespace", "trim leading spaces", "trim start", "trim left", "trim indentation"
+  if (/^(?:leading(?:\s+(?:whitespace|white\s+space|spaces?))?|start(?:\s+of\s+lines?)?|left|indentation|indent)$/i.test(target)) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Trim leading horizontal whitespace from the beginning of every line.',
+      steps: [
+        {
+          description: 'Match leading spaces/tabs at start of line and delete them',
+          find: '^[ \\t]+',
+          replace: '',
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: ['Start-of-line anchor (^)', 'Horizontal whitespace ([ \\t]+)'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 6. Trailing whitespace only: "trim trailing", "trim trailing whitespace", "trim trailing spaces", "trim end", "trim right", "trim line endings"
+  if (/^(?:trailing(?:\s+(?:whitespace|white\s+space|spaces?))?|end(?:\s+of\s+lines?)?|right|line\s+endings?)$/i.test(target)) {
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: 'Trim trailing horizontal whitespace from the end of every line.',
+      steps: [
+        {
+          description: 'Match trailing spaces/tabs at end of line and delete them',
+          find: '[ \\t]+$',
+          replace: '',
+          flags: 'gm'
+        }
+      ],
+      featuresUsed: ['End-of-line anchor ($)', 'Horizontal whitespace ([ \\t]+)'],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 7. "trim leading <X>"
+  const leadingTargetMatch = cleaned.match(/^(?:all\s+|every\s+|each\s+|the\s+)?leading\s+(.+)$/i);
+  if (leadingTargetMatch) {
+    const unit = resolveRepeatableTrimUnit(leadingTargetMatch[1].trim(), parsed.quotes);
+    const findPat = `^${unit.quantPat}`;
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: `Trim leading ${unit.label} from the beginning of every line.`,
+      steps: [
+        {
+          description: `Match leading ${unit.label} at start of line and delete`,
+          find: findPat,
+          replace: '',
+          flags: buildFlagsString(parsed, true, false)
+        }
+      ],
+      featuresUsed: ['Start-of-line anchor (^)', ...unit.features],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 8. "trim trailing <Y>"
+  const trailingTargetMatch = cleaned.match(/^(?:all\s+|every\s+|each\s+|the\s+)?trailing\s+(.+)$/i);
+  if (trailingTargetMatch) {
+    const unit = resolveRepeatableTrimUnit(trailingTargetMatch[1].trim(), parsed.quotes);
+    const findPat = `${unit.quantPat}$`;
+    return {
+      isPossible: true,
+      mode: 'replace',
+      summary: `Trim trailing ${unit.label} from the end of every line.`,
+      steps: [
+        {
+          description: `Match trailing ${unit.label} at end of line and delete`,
+          find: findPat,
+          replace: '',
+          flags: buildFlagsString(parsed, true, false)
+        }
+      ],
+      featuresUsed: ['End-of-line anchor ($)', ...unit.features],
+      confidence: 'high',
+      preferredAction: 'replace-all'
+    };
+  }
+
+  // 9. "trim <X>" (both leading and trailing <X> on every line)
+  const unit = resolveRepeatableTrimUnit(cleaned, parsed.quotes);
+  const findPat = `^${unit.quantPat}|${unit.quantPat}$`;
+  return {
+    isPossible: true,
+    mode: 'replace',
+    summary: `Trim leading and trailing ${unit.label} from every line.`,
+    steps: [
+      {
+        description: `Match leading or trailing ${unit.label} on each line and delete`,
+        find: findPat,
+        replace: '',
+        flags: buildFlagsString(parsed, true, false)
+      }
+    ],
+    featuresUsed: ['Line start/end anchors (^, $)', 'Alternation (|)', ...unit.features],
     confidence: 'high',
     preferredAction: 'replace-all'
   };
@@ -782,6 +1061,10 @@ export function parseNaturalLanguageRequest(prompt: string): ParseOutcome {
       return handleWrapIntent(parsed);
     case 'INSERT_ADD':
       return handleInsertAddIntent(parsed);
+    case 'ENSURE':
+      return handleEnsureIntent(parsed);
+    case 'TRIM':
+      return handleTrimIntent(parsed);
     case 'SWAP_REORDER':
       return handleSwapIntent(parsed);
     case 'CASE_TRANSFORM':

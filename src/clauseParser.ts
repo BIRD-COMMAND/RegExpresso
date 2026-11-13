@@ -6,6 +6,8 @@ export type MacroIntentType =
   | 'REPLACE'
   | 'WRAP'
   | 'INSERT_ADD'
+  | 'ENSURE'
+  | 'TRIM'
   | 'SWAP_REORDER'
   | 'CASE_TRANSFORM'
   | 'EXTRACT_CAPTURE';
@@ -148,6 +150,20 @@ function restoreProtectedTokens(str: string): string {
     .trim();
 }
 
+const MISSING_CONDITION_SUFFIX_REGEX =
+  /\s+(?:(?:that\s+|which\s+)?(?:doesn't|does\s+not|don't|do\s+not|didn't|did\s+not)\s+(?:already\s+)?(?:have|end\s+with|start\s+with|begin\s+with|contain|include)\b.*|(?:without|lacking|missing)\s+(?:already\s+)?(?:having\s+|ending\s+with\s+|starting\s+with\s+)?(?:one|it|them|that|\S+).*|if\s+(?:not\s+(?:already\s+)?(?:present|there|existing)|missing|needed|necessary|absent).*|(?:where|when)\s+(?:missing|needed|not\s+present|absent).*|unless\s+(?:already\s+)?(?:present|there).*)$/i;
+
+function extractMissingCondition(text: string): { cleaned: string; hasMissingCheck: boolean } {
+  const match = text.match(MISSING_CONDITION_SUFFIX_REGEX);
+  if (match && match.index !== undefined) {
+    const cleaned = text.slice(0, match.index).trim();
+    if (cleaned.length > 0) {
+      return { cleaned, hasMissingCheck: true };
+    }
+  }
+  return { cleaned: text.trim(), hasMissingCheck: false };
+}
+
 export function parseQueryClauses(rawPrompt: string): ParsedQuery {
   const raw = rawPrompt.trim();
   const { masked: initialMasked, quotes } = maskQuotedLiterals(raw);
@@ -227,6 +243,9 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
   }
 
   // 10. Extract Lookbehind and Lookahead Condition Clauses
+  const isPositionalInsertOrCaretQuery =
+    /^(?:insert|ins|add|put|place|set|append|app|prepend|prep|ensure)\b/i.test(working);
+
   // 10a: "but only if they have <X> directly in front of them" (Example #10)
   const onlyIfInFrontMatch = working.match(
     /,?\s*(?:but\s+)?(?:only\s+)?if\s+(?:they|it)\s+(?:have|has)\s+(.+?)\s+(?:directly\s+|immediately\s+)?(?:in\s+front\s+of\s+(?:them|it)|before\s+(?:them|it))$/i
@@ -239,9 +258,9 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     working = working.slice(0, onlyIfInFrontMatch.index).trim();
   }
 
-  // 10b: Negative lookahead: "that isn't / is not / not immediately followed by <X>" (Example #11)
+  // 10b: Negative lookahead: "that isn't / is not / not (immediately) followed by / before / preceding / in front of <X>" (Example #11)
   const notFollowedMatch = working.match(
-    /\s+(?:that\s+|which\s+)?(?:isn't|is\s+not|aren't|are\s+not|not)\s+(?:immediately\s+|directly\s+)?followed\s+by\s+(.+)$/i
+    /\s+(?:that\s+|which\s+)?(?:isn't|is\s+not|aren't|are\s+not|not)\s+(?:immediately\s+|directly\s+)?(?:followed\s+by|before|preceding|in\s+front\s+of)\s+(.+)$/i
   );
   if (notFollowedMatch) {
     conditions.push({
@@ -251,21 +270,32 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     working = working.slice(0, notFollowedMatch.index).trim();
   }
 
-  // 10c: Positive lookahead: "(that is/are) (immediately) followed by <X>"
-  const followedMatch = working.match(
-    /\s+(?:that\s+(?:is|are)\s+|which\s+(?:is|are)\s+)?(?:immediately\s+|directly\s+)?followed\s+by\s+(.+)$/i
-  );
-  if (followedMatch) {
-    conditions.push({
-      type: 'followed-by',
-      targetPhrase: unmaskQuotes(followedMatch[1].trim(), quotes)
-    });
-    working = working.slice(0, followedMatch.index).trim();
+  // 10c: Positive lookahead: "(that is/are) (immediately) followed by / before / preceding / in front of <X>"
+  if (!isPositionalInsertOrCaretQuery) {
+    const followedMatch = working.match(
+      /\s+(?:that\s+(?:is|are)\s+|which\s+(?:is|are)\s+)?(?:immediately\s+|directly\s+)?(followed\s+by|before|preceding|in\s+front\s+of)\s+(.+)$/i
+    );
+    if (followedMatch && followedMatch.index !== undefined) {
+      const prefix = working.slice(0, followedMatch.index).trim();
+      const prep = followedMatch[1].toLowerCase();
+      const rhs = followedMatch[2].trim();
+      const isSpanPrefix = /\b(?:everything|all\s+text|text|anything|rest\s+of\s+(?:the\s+)?line)$/i.test(prefix);
+      const hasReplaceSepInRhs =
+        /^(?:replace|rep|sub|chg|change|convert|turn|transform|substitute|switch|swap)\b/i.test(prefix) &&
+        /\s+(?:with|into|to|by)\s+|\s*(?:->|=>)\s*/i.test(rhs);
+      if ((prep.startsWith('followed') || !isSpanPrefix) && !hasReplaceSepInRhs) {
+        conditions.push({
+          type: 'followed-by',
+          targetPhrase: unmaskQuotes(rhs, quotes)
+        });
+        working = prefix;
+      }
+    }
   }
 
-  // 10d: Negative lookbehind: "(that isn't / is not / not) (immediately) preceded by <X>"
+  // 10d: Negative lookbehind: "(that isn't / is not / not) (immediately) preceded by / after / following / behind <X>"
   const notPrecededMatch = working.match(
-    /\s+(?:that\s+|which\s+)?(?:isn't|is\s+not|aren't|are\s+not|not)\s+(?:immediately\s+|directly\s+)?(?:preceded\s+by|after)\s+(.+)$/i
+    /\s+(?:that\s+|which\s+)?(?:isn't|is\s+not|aren't|are\s+not|not)\s+(?:immediately\s+|directly\s+)?(?:preceded\s+by|after|following|behind)\s+(.+)$/i
   );
   if (notPrecededMatch) {
     conditions.push({
@@ -275,16 +305,27 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     working = working.slice(0, notPrecededMatch.index).trim();
   }
 
-  // 10e: Positive lookbehind: "(that is/are) (immediately) preceded by <X>"
-  const precededMatch = working.match(
-    /\s+(?:that\s+(?:is|are)\s+|which\s+(?:is|are)\s+)?(?:immediately\s+|directly\s+)?preceded\s+by\s+(.+)$/i
-  );
-  if (precededMatch) {
-    conditions.push({
-      type: 'preceded-by',
-      targetPhrase: unmaskQuotes(precededMatch[1].trim(), quotes)
-    });
-    working = working.slice(0, precededMatch.index).trim();
+  // 10e: Positive lookbehind: "(that is/are) (immediately) preceded by / after / following / behind <X>"
+  if (!isPositionalInsertOrCaretQuery) {
+    const precededMatch = working.match(
+      /\s+(?:that\s+(?:is|are)\s+|which\s+(?:is|are)\s+)?(?:immediately\s+|directly\s+)?(preceded\s+by|after|following|behind)\s+(.+)$/i
+    );
+    if (precededMatch && precededMatch.index !== undefined) {
+      const prefix = working.slice(0, precededMatch.index).trim();
+      const prep = precededMatch[1].toLowerCase();
+      const rhs = precededMatch[2].trim();
+      const isSpanPrefix = /\b(?:everything|all\s+text|text|anything|rest\s+of\s+(?:the\s+)?line)$/i.test(prefix);
+      const hasReplaceSepInRhs =
+        /^(?:replace|rep|sub|chg|change|convert|turn|transform|substitute|switch|swap)\b/i.test(prefix) &&
+        /\s+(?:with|into|to|by)\s+|\s*(?:->|=>)\s*/i.test(rhs);
+      if ((prep.startsWith('preceded') || !isSpanPrefix) && !hasReplaceSepInRhs) {
+        conditions.push({
+          type: 'preceded-by',
+          targetPhrase: unmaskQuotes(rhs, quotes)
+        });
+        working = prefix;
+      }
+    }
   }
 
   // 11. Detect Explicit Cursor / Clipboard / Extraction UI Actions
@@ -433,24 +474,219 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     };
   }
 
-  // 15. Check INSERT_ADD Intent
-  // 15a: "Add/append/put/insert <Y> to/at the end (of <X> | per | per line)" (Example #5)
-  const addEndMatch = working.match(
-    /^(?:add|append|app|put|insert|ins)\s+(.+?)\s+(?:to|at|on|onto)\s+(?:the\s+)?end(?:\s+(?:of\s+(.+)|per|per[-\s]lines?))?$/i
-  );
-  if (addEndMatch) {
-    let target = (addEndMatch[2] ?? 'every line').trim();
-    let missingCheck = false;
-    if (/\b(?:that\s+)?(?:doesn't|does\s+not|don't|do\s+not|without|lacking|missing)\s+(?:already\s+)?(?:have|end\s+with)\b/i.test(target)) {
-      missingCheck = true;
-      target = target
-        .replace(/\s+(?:that\s+)?(?:doesn't|does\s+not|don't|do\s+not|without|lacking|missing)\s+(?:already\s+)?(?:have|end\s+with).*$/i, '')
-        .trim();
+  // 14.5 Check ENSURE Intent ("ensure trailing ;", "ensure leading //", "ensure every line ends with ;", "ensure space after commas")
+  if (/^ensure\s+/i.test(working)) {
+    const ensureBody = extractMissingCondition(working.replace(/^ensure\s+(?:that\s+)?/i, '').trim()).cleaned;
+    const ensureTrailingMatch = ensureBody.match(
+      /^(?:a\s+|an\s+|the\s+|all\s+|every\s+|each\s+)?trailing\s+(.+?)(?:\s+(?:per|per[-\s]lines?|(?:on|in|of|to|at|for)\s+(?:every\s+|each\s+|all\s+|a\s+|the\s+)?lines?))?$/i
+    );
+    if (ensureTrailingMatch) {
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureTrailingMatch[1].trim(),
+        insertPosition: 'end-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
     }
+
+    const ensureLeadingMatch = ensureBody.match(
+      /^(?:a\s+|an\s+|the\s+|all\s+|every\s+|each\s+)?leading\s+(.+?)(?:\s+(?:per|per[-\s]lines?|(?:on|in|of|to|at|for)\s+(?:every\s+|each\s+|all\s+|a\s+|the\s+)?lines?))?$/i
+    );
+    if (ensureLeadingMatch) {
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureLeadingMatch[1].trim(),
+        insertPosition: 'start-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+
+    const ensureLineVerbMatch = ensureBody.match(
+      /^(?:every\s+|each\s+|all\s+)?lines?\s+(ends?|starts?|begins?)\s+(?:with|in)\s+(.+)$/i
+    );
+    if (ensureLineVerbMatch) {
+      const isEnd = /^end/i.test(ensureLineVerbMatch[1]);
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureLineVerbMatch[2].trim(),
+        insertPosition: isEnd ? 'end-of-line' : 'start-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+
+    const ensureAtEndMatch = ensureBody.match(
+      /^(.+?)\s+(?:to|at|on|in|onto)\s+(?:the\s+|each\s+|every\s+|all\s+)?(?:(?:end|ending)s?(?:\s+of\s+.+)?|line\s+(?:end|ending)s?)(?:\s+(?:per|per[-\s]lines?))?$/i
+    );
+    if (ensureAtEndMatch) {
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureAtEndMatch[1].trim(),
+        insertPosition: 'end-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+
+    const ensureAtStartMatch = ensureBody.match(
+      /^(.+?)\s+(?:to|at|on|in|onto)\s+(?:the\s+|each\s+|every\s+|all\s+)?(?:(?:start|beginning|front)s?(?:\s+of\s+.+)?|line\s+(?:start|beginning|front)s?)(?:\s+(?:per|per[-\s]lines?))?$/i
+    );
+    if (ensureAtStartMatch) {
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureAtStartMatch[1].trim(),
+        insertPosition: 'start-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+
+    const ensureRelMatch = ensureBody.match(
+      /^(.+?)\s+(before|in\s+front\s+of|preceding|after|behind|following)\s+(.+)$/i
+    );
+    if (ensureRelMatch) {
+      const isBefore = /^(?:before|in\s+front\s+of|preceding)$/i.test(ensureRelMatch[2].trim());
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: ensureRelMatch[3].trim(),
+        replacementClause: ensureRelMatch[1].trim(),
+        insertPosition: isBefore ? 'before-target' : 'after-target',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags,
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+
+    const ensureBarePerLine = ensureBody.match(
+      /^(.+?)(?:\s+(?:per|per[-\s]lines?|(?:on|in|of|to|at|for)\s+(?:every\s+|each\s+|all\s+|a\s+|the\s+)?lines?))?$/i
+    );
+    if (ensureBarePerLine) {
+      return {
+        raw,
+        intent: 'ENSURE',
+        targetClause: 'every line',
+        replacementClause: ensureBarePerLine[1].trim(),
+        insertPosition: 'end-of-line',
+        missingCheck: true,
+        conditions,
+        exclusionClause,
+        locationHint,
+        nonGreedyHint,
+        flags: { ...flags, multiline: true },
+        preferredAction: 'replace-all',
+        quotes
+      };
+    }
+  }
+
+  // 15. Check INSERT_ADD Intent
+  // Pre-extract any trailing missing-condition ("that doesn't have one", "without one", "if needed")
+  const { cleaned: insertWorking, hasMissingCheck: insertMissingCheck } =
+    /^(?:add|append|app|prepend|prep|put|insert|ins)\b/i.test(working)
+      ? extractMissingCondition(working)
+      : { cleaned: working, hasMissingCheck: false };
+
+  // 15a: "Add/append/put/insert trailing <Y>" or "<Y> to/at the end (of <X> | per | per line)" or "at each line ending" (Example #5)
+  const addTrailingShorthand = insertWorking.match(
+    /^(?:add|append|app|put|insert|ins)\s+(?:a\s+|an\s+|the\s+)?trailing\s+(.+?)(?:\s+(?:per|per[-\s]lines?|(?:on|in|of|to|at|for)\s+(?:every\s+|each\s+|all\s+|a\s+|the\s+)?lines?))?$/i
+  );
+  if (addTrailingShorthand) {
     return {
       raw,
-      intent: 'INSERT_ADD',
-      targetClause: target,
+      intent: insertMissingCheck ? 'ENSURE' : 'INSERT_ADD',
+      targetClause: 'every line',
+      replacementClause: addTrailingShorthand[1].trim(),
+      insertPosition: 'end-of-line',
+      missingCheck: insertMissingCheck,
+      conditions,
+      exclusionClause,
+      locationHint,
+      nonGreedyHint,
+      flags: { ...flags, multiline: true },
+      preferredAction: 'replace-all',
+      quotes
+    };
+  }
+
+  const addLeadingShorthand = insertWorking.match(
+    /^(?:add|prepend|prep|put|insert|ins)\s+(?:a\s+|an\s+|the\s+)?leading\s+(.+?)(?:\s+(?:per|per[-\s]lines?|(?:on|in|of|to|at|for)\s+(?:every\s+|each\s+|all\s+|a\s+|the\s+)?lines?))?$/i
+  );
+  if (addLeadingShorthand) {
+    return {
+      raw,
+      intent: insertMissingCheck ? 'ENSURE' : 'INSERT_ADD',
+      targetClause: 'every line',
+      replacementClause: addLeadingShorthand[1].trim(),
+      insertPosition: 'start-of-line',
+      missingCheck: insertMissingCheck,
+      conditions,
+      exclusionClause,
+      locationHint,
+      nonGreedyHint,
+      flags: { ...flags, multiline: true },
+      preferredAction: 'replace-all',
+      quotes
+    };
+  }
+
+  const addEndMatch = insertWorking.match(
+    /^(?:add|append|app|put|insert|ins)\s+(.+?)\s+(?:to|at|on|in|onto)\s+(?:(?:the\s+)?(?:end|ending)s?(?:\s+(?:of\s+(.+)|per|per[-\s]lines?))?|(?:each\s+|every\s+|all\s+|the\s+|a\s+)?line\s+(?:end|ending)s?(?:\s+(?:per|per[-\s]lines?))?)$/i
+  );
+  if (addEndMatch) {
+    const extracted = extractMissingCondition((addEndMatch[2] ?? 'every line').trim());
+    const missingCheck = insertMissingCheck || extracted.hasMissingCheck;
+    return {
+      raw,
+      intent: missingCheck ? 'ENSURE' : 'INSERT_ADD',
+      targetClause: extracted.cleaned,
       replacementClause: addEndMatch[1].trim(),
       insertPosition: 'end-of-line',
       missingCheck,
@@ -464,23 +700,17 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     };
   }
 
-  // 15b: "Add/prepend/put/insert <Y> to/at the start/beginning (of <X> | per | per line)"
-  const addStartMatch = working.match(
-    /^(?:add|prepend|prep|put|insert|ins)\s+(.+?)\s+(?:to|at|on|in)\s+(?:the\s+)?(?:start|beginning|front)(?:\s+(?:of\s+(.+)|per|per[-\s]lines?))?$/i
+  // 15b: "Add/prepend/put/insert <Y> to/at the start/beginning (of <X> | per | per line)" or "at each line start"
+  const addStartMatch = insertWorking.match(
+    /^(?:add|prepend|prep|put|insert|ins)\s+(.+?)\s+(?:to|at|on|in|onto)\s+(?:(?:the\s+)?(?:start|beginning|front)s?(?:\s+(?:of\s+(.+)|per|per[-\s]lines?))?|(?:each\s+|every\s+|all\s+|the\s+|a\s+)?line\s+(?:start|beginning|front)s?(?:\s+(?:per|per[-\s]lines?))?)$/i
   );
   if (addStartMatch) {
-    let target = (addStartMatch[2] ?? 'every line').trim();
-    let missingCheck = false;
-    if (/\b(?:that\s+)?(?:doesn't|does\s+not|don't|do\s+not|without|lacking|missing)\s+(?:already\s+)?(?:have|start\s+with)\b/i.test(target)) {
-      missingCheck = true;
-      target = target
-        .replace(/\s+(?:that\s+)?(?:doesn't|does\s+not|don't|do\s+not|without|lacking|missing)\s+(?:already\s+)?(?:have|start\s+with).*$/i, '')
-        .trim();
-    }
+    const extracted = extractMissingCondition((addStartMatch[2] ?? 'every line').trim());
+    const missingCheck = insertMissingCheck || extracted.hasMissingCheck;
     return {
       raw,
-      intent: 'INSERT_ADD',
-      targetClause: target,
+      intent: missingCheck ? 'ENSURE' : 'INSERT_ADD',
+      targetClause: extracted.cleaned,
       replacementClause: addStartMatch[1].trim(),
       insertPosition: 'start-of-line',
       missingCheck,
@@ -495,14 +725,15 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
   }
 
   // 15c: "Prepend/prep <Y> (to <X> | per | per line)" / "Append/app <Y> (to <X> | per | per line)"
-  const prependToMatch = working.match(/^(?:prepend|prep)\s+(.+?)\s+(?:to\s+(.+)|per|per[-\s]lines?)$/i);
+  const prependToMatch = insertWorking.match(/^(?:prepend|prep)\s+(.+?)\s+(?:to\s+(.+)|per|per[-\s]lines?)$/i);
   if (prependToMatch) {
     return {
       raw,
-      intent: 'INSERT_ADD',
+      intent: insertMissingCheck ? 'ENSURE' : 'INSERT_ADD',
       targetClause: (prependToMatch[2] ?? 'every line').trim(),
       replacementClause: prependToMatch[1].trim(),
       insertPosition: 'start-of-line',
+      missingCheck: insertMissingCheck,
       conditions,
       exclusionClause,
       locationHint,
@@ -513,14 +744,15 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     };
   }
 
-  const appendToMatch = working.match(/^(?:append|app)\s+(.+?)\s+(?:to\s+(.+)|per|per[-\s]lines?)$/i);
+  const appendToMatch = insertWorking.match(/^(?:append|app)\s+(.+?)\s+(?:to\s+(.+)|per|per[-\s]lines?)$/i);
   if (appendToMatch) {
     return {
       raw,
-      intent: 'INSERT_ADD',
+      intent: insertMissingCheck ? 'ENSURE' : 'INSERT_ADD',
       targetClause: (appendToMatch[2] ?? 'every line').trim(),
       replacementClause: appendToMatch[1].trim(),
       insertPosition: 'end-of-line',
+      missingCheck: insertMissingCheck,
       conditions,
       exclusionClause,
       locationHint,
@@ -532,17 +764,18 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
   }
 
   // 15d: "Insert/ins/add/put <Y> before/after <X>"
-  const insertRelMatch = working.match(
-    /^(?:insert|ins|add|put)\s+(.+?)\s+(before|in\s+front\s+of|after|behind|following)\s+(.+)$/i
+  const insertRelMatch = insertWorking.match(
+    /^(?:insert|ins|add|put)\s+(.+?)\s+(before|in\s+front\s+of|preceding|after|behind|following)\s+(.+)$/i
   );
   if (insertRelMatch) {
-    const isBefore = /^(?:before|in\s+front\s+of)$/i.test(insertRelMatch[2].trim());
+    const isBefore = /^(?:before|in\s+front\s+of|preceding)$/i.test(insertRelMatch[2].trim());
     return {
       raw,
-      intent: 'INSERT_ADD',
+      intent: insertMissingCheck ? 'ENSURE' : 'INSERT_ADD',
       targetClause: insertRelMatch[3].trim(),
       replacementClause: insertRelMatch[1].trim(),
       insertPosition: isBefore ? 'before-target' : 'after-target',
+      missingCheck: insertMissingCheck,
       conditions,
       exclusionClause,
       locationHint,
@@ -704,15 +937,14 @@ export function parseQueryClauses(rawPrompt: string): ParsedQuery {
     }
   }
 
-  // 19. Check DELETE Intent ("delete/del/rm/remove/strip/erase/clear/drop/omit/collapse/trim <X>")
+  // 19. Check TRIM and DELETE Intents
   const trimVerbMatch = working.match(/^trim(?:\s+(.+))?$/i);
   if (trimVerbMatch) {
     const rest = trimVerbMatch[1]?.trim() ?? '';
-    const isLineTrim = !rest || /^(?:all\s+|every\s+|each\s+|the\s+)?(?:lines?|whitespace|spaces?|rows?|per|per[-\s]lines?)$/i.test(rest);
     return {
       raw,
-      intent: 'DELETE',
-      targetClause: isLineTrim ? 'leading and trailing whitespace' : rest,
+      intent: 'TRIM',
+      targetClause: rest,
       replacementClause: '',
       conditions,
       exclusionClause,

@@ -112,12 +112,17 @@ export function applyStepToText(text: string, step: RegexStep): { newText: strin
     lastIndex = match.index + match[0].length;
 
     // Prevent infinite loop on zero-length matches (e.g., lookarounds at line ends)
+    // Step over CRLF (\r\n) as a 2-char unit so regex.lastIndex never lands between \r and \n.
     if (match[0].length === 0) {
       if (regex.lastIndex < text.length) {
-        result += text[regex.lastIndex];
-        lastIndex = regex.lastIndex + 1;
+        const stepLen =
+          text[regex.lastIndex] === '\r' && text[regex.lastIndex + 1] === '\n' ? 2 : 1;
+        result += text.slice(regex.lastIndex, regex.lastIndex + stepLen);
+        lastIndex = regex.lastIndex + stepLen;
+        regex.lastIndex += stepLen;
+      } else {
+        regex.lastIndex++;
       }
-      regex.lastIndex++;
     }
   }
 
@@ -176,7 +181,9 @@ export function findAllMatchesInEditor(
     }
 
     if (match[0].length === 0) {
-      regex.lastIndex++;
+      const stepLen =
+        fullText[regex.lastIndex] === '\r' && fullText[regex.lastIndex + 1] === '\n' ? 2 : 1;
+      regex.lastIndex += stepLen;
     }
   }
 

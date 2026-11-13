@@ -54,12 +54,20 @@ Triggered by leading verbs `find`, `fnd`, `match`, `select`, `sel`, `get`, `loca
   - `find three to five digits in a row without letters attached` → `/\b\d{3,5}\b/g`
   - `emails` → `/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g`
 
-### 2.2 `DELETE` (Remove / Strip / Trim)
+### 2.2 `DELETE` & `TRIM` (Remove / Strip / Trim)
 Triggered by leading verbs `delete`, `del`, `remove`, `rm`, `strip`, `erase`, `clear`, `clr`, `drop`, `omit`, `eliminate`, `wipe`, `scrub`, `get rid of`, `collapse`, or `trim`, as well as compound queries like `find <X> and delete it/them/the second one`.
+
+The dedicated **`trim`** handler supports removing blank lines, stripping leading/trailing whitespace, or trimming specific characters/classes from the start, end, or both ends of each line:
 - **Examples**:
   - `Delete all the blank lines.` → Find: `/^\s*\n/gm`, Replace: `""`
+  - `trim blanks` / `trim empties` / `trim blank lines` → Find: `/^\s*\r?\n/gm`, Replace: `""`
+  - `trim` / `trim lines` / `trim whitespace` → Find: `/^[ \t]+|[ \t]+$/gm`, Replace: `""`
+  - `trim leading` / `trim leading spaces` → Find: `/^[ \t]+/gm`, Replace: `""`
+  - `trim trailing` / `trim trailing spaces` → Find: `/[ \t]+$/gm`, Replace: `""`
+  - `trim leading x` / `trim leading zeros` → Find: `/^x+/gm` / `/^0+/gm`, Replace: `""`
+  - `trim trailing y` / `trim trailing ;` → Find: `/y+$/gm` / `/;+$/gm`, Replace: `""`
+  - `trim quotes` → Find: `/^["']+|["']+$/gm`, Replace: `""`
   - `delete quotes` / `rm quotes` → Find: `/["']/g`, Replace: `""`
-  - `trim lines` → Find: `/^[ \t]+|[ \t]+$/gm`, Replace: `""`
   - `Find any word that is accidentally typed twice in a row and delete the second one.` → Find: `/\b([a-zA-Z]+)\s+\1\b/gi`, Replace: `"$1"`
 
 ### 2.3 `REPLACE` (Change / Convert / Substitute)
@@ -97,18 +105,26 @@ Supported wrappers include `quotation marks` / `double quotes` / `quotes` (`"...
   - `wrap words in parentheses` → Find: `/(\w+)/g`, Replace: `($1)`
   - `put single quotes around numbers` → Find: `/(\d+)/g`, Replace: `'$1'`
 
-### 2.5 `INSERT_ADD` (Append / Prepend / Insert Before or After)
+### 2.5 `INSERT_ADD` & `ENSURE` (Append / Prepend / Conditional Insertion)
 Triggered by:
-- `add/append/put/insert <Y> to/at the end of <X>` (or `add <Y> to end per` / `app <Y> per`)
-- `add/prepend/put/insert <Y> to/at the start/beginning of <X>` (or `add <Y> to start per` / `prep <Y> per`)
-- `insert/add/put <Y> before/in front of <X>`
-- `insert/add/put <Y> after/following <X>`
+- **`ensure` (Conditional Insertion — "apply only if not already present")**:
+  - `ensure trailing <Y> [per line]` (e.g., `ensure trailing semicolons`, `ensure trailing semicolon per line`, `ensure trailing ;`)
+  - `ensure leading <Y> [per line]` (e.g., `ensure leading //`, `ensure leading # per line`)
+  - `ensure every line ends/starts with <Y>`
+  - `ensure <Y> before/after <X>` (e.g., `ensure a space after commas`)
+- **Unconditional or Conditional `add` / `insert` / `append` / `prepend` / `put`**:
+  - `add/append/put/insert <Y> to/at the end of <X>` / `at each line ending` / `add trailing <Y>`
+  - `add/prepend/put/insert <Y> to/at the start/beginning of <X>` / `at each line start` / `add leading <Y>`
+  - `insert/add/put <Y> before/in front of <X>`
+  - `insert/add/put <Y> after/following <X>`
 
-Includes automatic negative lookbehind/lookahead generation when the query specifies `that doesn't have one`, `without one`, or `if not already present`.
+When any `add`/`insert` query includes `that doesn't have one`, `without one`, `if missing`, or `if needed`, it automatically routes to the `ENSURE` handler with CRLF-safe negative lookbehind/lookahead assertions.
 - **Examples**:
-  - `Add a semicolon to the end of every line that doesn't have one.` → Find: `/(?<!;)(\s*)$/gm`, Replace: `;$1`
-  - `add ; to end per` / `app ; per` → Find: `/^(.+)$/gm`, Replace: `$1;`
-  - `ins // at start per` / `prep // per` → Find: `/^(.+)$/gm`, Replace: `//$1`
+  - `Add a semicolon to the end of every line that doesn't have one.` / `add ; at the end of each line without one` / `add a semicolon at each line ending without one` / `ensure trailing ;` → Find: `/^([^\r\n]*?\S)(?<!;)([ \t]*)$/gm`, Replace: `$1;$2`
+  - `ensure leading //` → Find: `/^([ \t]*)(?!\/\/)(\S[^\r\n]*)$/gm`, Replace: `$1//$2`
+  - `ensure a space after commas` → Find: `/(,)(?! )/g`, Replace: `$1 `
+  - `add ; to end per` / `app ; per` → Find: `/^([^\r\n]*\S[^\r\n]*)$/gm`, Replace: `$1;`
+  - `ins // at start per` / `prep // per` → Find: `/^([^\r\n]*\S[^\r\n]*)$/gm`, Replace: `//$1`
   - `add a dollar sign before every number` → Find: `/(\d+)/g`, Replace: `$$$1`
 
 ### 2.6 `SWAP_REORDER` (Swap / Reverse Pair)
@@ -200,7 +216,8 @@ Every entry below can be used in **Find/Select**, **Delete**, **Replace (Target 
 | `single quotes`, `apostrophes` | `'` | `'` |
 | `backticks`, `grave accents` | `` ` `` | `` ` `` |
 | `smart quotes`, `curly quotes` | `[“”‘’]` | `"` |
-| `quoted strings`, `text in quotes` | `(?:"[^"]*"\|'[^']*')` | — |
+| `strings`, `string`, `quotations`, `quotation`, `quoted strings` (includes surrounding quotes) | `(?:"[^"\r\n]*"\|'[^'\r\n]*')` | `""` |
+| `double-quoted strings` / `single-quoted strings` | `"[^"\r\n]*"` / `'[^'\r\n]*'` | `""` / `''` |
 | `periods`, `period`, `dots`, `dot`, `full stops` | `\.` | `.` |
 | `commas`, `comma` | `,` | `,` |
 | `semicolons`, `semicolon` | `;` | `;` |
@@ -306,17 +323,22 @@ Quantifiers can be written using digits (`3`, `5`) or English number words (`one
 - **Inner-Word / Non-Word Boundary (`\B...\B`)**: Triggered by `in the middle of a word` or `inside a word`.
   - `Match characters that are NOT alphanumeric, spaces, or underscores, but only when they appear in the middle of a word.` → `/\B[^\w\s]\B/g`
 
-### 7.2 Word & Line Affix Filters
+### 7.2 Word, String & Line Affix Filters
 - `words starting with <X>` → `\b<X>[a-zA-Z0-9_]*\b`
 - `words ending in/with <X>` → `\b[a-zA-Z0-9_]*<X>\b`
 - `words containing <X>` → `\b[a-zA-Z0-9_]*<X>[a-zA-Z0-9_]*\b`
+- `strings starting with <X>` / `quotations starting with <X>` → `(?:"<X>[^"\r\n]*"|'<X>[^'\r\n]*')`
+- `strings ending with <X>` / `quotations ending with <X>` → `(?:"[^"\r\n]*<X>"|'[^'\r\n]*<X>')`
+- `strings containing <X>` / `quotations containing <X>` → `(?:"[^"\r\n]*<X>[^"\r\n]*"|'[^'\r\n]*<X>[^'\r\n]*')`
 - `lines starting with <X>` → `^[ \t]*<X>.*$` (`gm`)
 - `lines ending with <X>` → `^.*<X>[ \t]*$` (`gm`)
 - `lines containing <X>` → `^.*<X>.*$` (`gm`)
 - `lines not containing <X>` / `lines without <X>` → `^(?!.*<X>).+$` (`gm`)
   *(Note: When used with `delete` / `rm`, whole-line filters automatically append `\r?\n?` so deleting matching lines collapses the line break cleanly.)*
 
-### 7.3 Positional Line Slicing
+### 7.3 Positional Line Slicing & `leading` / `trailing` Modifiers
+- `leading <X>` (e.g., `find leading digits`, `replace leading // with #`, `trim leading zeros`) → anchors `<X>` to the start of the line (`^<X>`)
+- `trailing <Y>` (e.g., `select trailing digits`, `delete trailing ;`, `ensure trailing ;`, `trim trailing commas`) → anchors `<Y>` to the end of the line (`<Y>$`)
 - `first <N> [chars|letters|digits|.|\*] per` → `^.{N}` (`gm`)
 - `last <N> [chars|letters|digits|.|\*] per` → `.{N}$` (`gm`)
 - `first word per` → `^\w+` (`gm`)
@@ -349,29 +371,38 @@ When multi-character words or patterns are joined by `or`:
 
 ## 9. Lookaheads, Lookbehinds & Exclusion Clauses
 
-RegExpresso supports arbitrary positive and negative lookarounds attached to any target:
+RegExpresso supports arbitrary positive and negative lookarounds attached to any target using natural prepositions (`preceded by`, `after`, `following`, `behind`, `followed by`, `before`, `preceding`, `in front of`):
 
 | Natural Language Phrasing | Compiled Assertion | Example Query | Compiled Regex |
 | :--- | :--- | :--- | :--- |
-| `preceded by <X>` / `only if they have <X> directly in front of them` | `(?<=<X>)` | `Give me all numbers, but only if they have a dollar sign directly in front of them` | `/(?<=\$)\d+(?:\.\d{2})?/g` |
-| `not preceded by <X>` / `not after <X>` | `(?<!<X>)` | `find quotes not preceded by a backslash` | `/(?<!\\)["']/g` |
-| `followed by <X>` | `(?=\s*<X>)` | `find words followed by an opening parenthesis` | `/\w+(?=\s*\()/g` |
-| `not followed by <X>` / `isn't immediately followed by <X>` | `(?!\s*<X>)` | `Find every instance of 'password' that isn't immediately followed by an equals sign or colon.` | `/\bpassword\b(?!\s*[:=])/g` |
+| `preceded by <X>` / `after <X>` / `following <X>` / `behind <X>` | `(?<=<X>)` | `find quote preceded by s` / `find quote after s` | `/(?<=s)["']/g` |
+| `not preceded by <X>` / `not after <X>` / `not behind <X>` | `(?<!<X>)` | `find quotes not after a backslash` | `/(?<!\\)["']/g` |
+| `followed by <X>` / `before <X>` / `preceding <X>` / `in front of <X>` | `(?=<X>)` | `find quote followed by s` / `find quote before s` | `/["'](?=s)/g` |
+| `not followed by <X>` / `not before <X>` / `isn't immediately followed by <X>` | `(?!<X>)` | `Find every instance of 'password' that isn't immediately followed by an equals sign or colon.` | `/\bpassword\b(?!\s*[:=])/g` |
 | `but ignore <X>` / `excluding <X>` | `(?<!-)...(?!-)` or `(?!<X>)` | `Find all four-digit years in this text, but ignore dates that are already formatted inside ISO strings like 2024-11-04.` | `/(?<!-)\b(19\d{2}\|20\d{2})\b(?!-)/g` |
 
 ---
 
-## 10. Delimited & Inner Text Extraction
+## 10. Delimited & Inner Text vs. Full Quoted Strings
 
+RegExpresso distinguishes cleanly between selecting **only the inner content** between delimiters versus selecting **full quoted strings including their quotation marks**:
+
+- **Inner Content Only (Excludes Delimiters)**:
+  Queries using `inside`, `between`, `within`, or `enclosed in` use lookbehind and lookahead assertions so that `Select All Matches`, `Delete`, and `Replace` operate strictly on the text *between* the delimiters without touching the delimiters themselves:
+  - `select text inside quotation marks` / `select between quotes` / `select inside quotes` → `/((?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")|(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?='))/gm` *(even-pair lookbehind ensures gaps between multiple strings on the same line are never matched)*
+  - `select inside double quotes` → `/(?<=^(?:[^"\r\n]*"[^"\r\n]*")*[^"\r\n]*")[^"\r\n]+(?=")/gm`
+  - `select inside single quotes` → `/(?<=^(?:[^'\r\n]*'[^'\r\n]*')*[^'\r\n]*')[^'\r\n]+(?=')/gm`
+  - `select inside parentheses` / `select between parens` → `/(?<=\()[^)\r\n]+(?=\))/g`
+  - `select inside square brackets` / `select between brackets` → `/(?<=\[)[^\]\r\n]+(?=\])/g`
+  - `select inside curly braces` / `select between braces` → `/(?<=\{)[^}\r\n]+(?=\})/g`
+  - `find text between <A> and <B>` → `/(?<=<A>)[^\r\n]+?(?=<B>)/g`
+- **Full Quoted Strings (Includes Quotation Marks)**:
+  Use the **`string` / `strings`** or **`quotation` / `quotations`** keywords when you want the selection or replacement to include the surrounding quotation marks:
+  - `select strings` / `select quotations` → `/(?:"[^"\r\n]*"|'[^'\r\n]*')/g`
+  - `delete strings` / `delete quotations` → Find: `/(?:"[^"\r\n]*"|'[^'\r\n]*')/g`, Replace: `""`
+  - `select strings containing host` → `/(?:"[^"\r\n]*host[^"\r\n]*"|'[^'\r\n]*host[^'\r\n]*')/g`
 - **HTML/XML Tags**:
   - `Find all text inside HTML tags, like <title>Home</title>, but only grab what's between the first opening and closing tag on the line` → Find: `/<([a-z]+)>(.*?)<\/\1>/gi`, Replace: `$2`
-- **Parentheses, Brackets, Braces & Quotes**:
-  - `find text inside parentheses` → `/\(([^)]*)\)/g` (use **Select Capture Group `$1` Only** to select just the inner text!)
-  - `find text inside square brackets` → `/\[([^\]]*)\]/g`
-  - `find text inside curly braces` → `/\{([^}]*)\}/g`
-  - `find text inside quotes` → `/["']([^"']*)["']/g`
-- **Custom Delimiter Pairs**:
-  - `find text between <A> and <B>` → `/<A>(.*?)<B>/g`
 
 ---
 

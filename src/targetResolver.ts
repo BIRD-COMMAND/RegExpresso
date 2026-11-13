@@ -265,7 +265,7 @@ function stripDeterminersAndClassifiers(
     { regex: /^(?:instances?|occurrences?)\s+of\s+/i, setsWholeWord: true },
     { regex: /^(?:all\s+of\s+the|all\s+the|all|every|each|any)\s+/i },
     { regex: /^(?:the\s+)?(?:exact\s+|literal\s+)?(?:word)\s+(?!that\s+(?:is|are)\b|which\b|typed\b|repeated\b|starting\b|beginning\b|ending\b|containing\b)/i, setsWholeWord: true },
-    { regex: /^(?:the\s+)?(?:exact\s+|literal\s+)?(?:string|text|phrase|token|character|char|letter|symbol|value|pattern)\s+(?!that\s+(?:is|are)\b|which\b)/i },
+    { regex: /^(?:the\s+)?(?:exact\s+|literal\s+)?(?:string|text|phrase|token|character|char|letter|symbol|value|pattern)\s+(?!that\s+(?:is|are)\b|which\b|starting\b|beginning\b|ending\b|containing\b|with\b|without\b)/i },
     { regex: /^(?:the|a|an|some)\s+/i }
   ];
 
@@ -284,6 +284,31 @@ function stripDeterminersAndClassifiers(
         }
       }
     }
+  }
+
+  // Detect leading positional keywords: "leading <X>" or "trailing <Y>"
+  // (excluding dedicated lexicon entries like "leading and trailing whitespace", "leading whitespace", "trailing spaces")
+  if (/^(?:leading|trailing)\s+/i.test(s)) {
+    const perExtracted = extractPerLineSuffix(s);
+    if (perExtracted.hasPerLine) {
+      s = perExtracted.cleaned;
+    }
+  }
+
+  const leadingModMatch = s.match(
+    /^leading\s+(?!and\s+trailing\b|whitespace\b|white\s+space\b|spaces?\b|indentation\b|indent\b)(.+)$/i
+  );
+  if (leadingModMatch) {
+    startOfLineHint = true;
+    s = leadingModMatch[1].trim();
+  }
+
+  const trailingModMatch = s.match(
+    /^trailing\s+(?!whitespace\b|white\s+space\b|spaces?\b)(.+)$/i
+  );
+  if (trailingModMatch) {
+    endOfLineHint = true;
+    s = trailingModMatch[1].trim();
   }
 
   return { cleaned: s, wholeWordHint, startOfLineHint, endOfLineHint };
@@ -433,76 +458,116 @@ function tryResolveInsideOrBetween(
     };
   }
 
-  // "text inside parentheses / brackets / braces / quotes"
+  // "text inside parentheses / brackets / braces / quotes" or "between quotes"
+  // Matches strictly the inner content (excluding surrounding delimiters) via lookbehinds/lookaheads.
   const insideContainerMatch = phrase.match(
-    /^(?:(?:all\s+|the\s+)?(?:text|content|characters?|words?|everything|anything)\s+)?(?:inside|within|between)\s+(?:of\s+)?(.+)$/i
+    /^(?:(?:all\s+|the\s+)?(?:text|content|characters?|chars?|words?|stuff|everything|anything|values?|items?)\s+(?:that\s+(?:is|are)\s+)?(?:inside|within|between|in|enclosed\s+in|wrapped\s+in|surrounded\s+by)|(?:inside|within|between|enclosed\s+in|wrapped\s+in|surrounded\s+by))\s+(?:of\s+)?(?:the\s+|all\s+|each\s+|every\s+|any\s+|matching\s+|paired\s+)?(.+)$/i
   );
   if (insideContainerMatch) {
     const container = insideContainerMatch[1].trim();
     if (/^(?:parentheses|parens?|round\s+brackets?)$/i.test(container)) {
       return {
-        pattern: '\\(([^)]*)\\)',
+        pattern: '(?<=\\()[^)\\r\\n]+(?=\\))',
         label: 'text inside parentheses',
-        features: ['Escaped parentheses (\\(...\\))', 'Negated character class ([^)]*)'],
+        features: [
+          'Positive lookbehind ((?<=\\())',
+          'Negated character class ([^)\\r\\n]+)',
+          'Positive lookahead ((?=\\)))'
+        ],
         needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        needsCaseInsensitive: false
       };
     }
     if (/^(?:(?:square\s+)?brackets?)$/i.test(container)) {
       return {
-        pattern: '\\[([^\\]]*)\\]',
+        pattern: '(?<=\\[)[^\\]\\r\\n]+(?=\\])',
         label: 'text inside square brackets',
-        features: ['Escaped brackets (\\[...\\])', 'Negated character class ([^\\]]*)'],
+        features: [
+          'Positive lookbehind ((?<=\\[))',
+          'Negated character class ([^\\]\\r\\n]+)',
+          'Positive lookahead ((?=\\]))'
+        ],
         needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        needsCaseInsensitive: false
       };
     }
     if (/^(?:(?:curly\s+)?braces?|curly\s+brackets?)$/i.test(container)) {
       return {
-        pattern: '\\{([^}]*)\\}',
+        pattern: '(?<=\\{)[^}\\r\\n]+(?=\\})',
         label: 'text inside curly braces',
-        features: ['Escaped braces (\\{...\\})', 'Negated character class ([^}]*)'],
+        features: [
+          'Positive lookbehind ((?<=\\{))',
+          'Negated character class ([^}\\r\\n]+)',
+          'Positive lookahead ((?=\\}))'
+        ],
         needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        needsCaseInsensitive: false
       };
     }
-    if (/^(?:double\s+quotes?)$/i.test(container)) {
+    if (/^(?:angle\s+brackets?|chevrons?)$/i.test(container)) {
       return {
-        pattern: '"([^"]*)"',
+        pattern: '(?<=<)[^>\\r\\n]+(?=>)',
+        label: 'text inside angle brackets',
+        features: [
+          'Positive lookbehind ((?<=<))',
+          'Negated character class ([^>\\r\\n]+)',
+          'Positive lookahead ((?=>))'
+        ],
+        needsMultiline: false,
+        needsCaseInsensitive: false
+      };
+    }
+    if (/^(?:double\s+(?:quotes?|quotation\s+marks?|quotations?))$/i.test(container)) {
+      return {
+        pattern: '(?<=^(?:[^"\\r\\n]*"[^"\\r\\n]*")*[^"\\r\\n]*")[^"\\r\\n]+(?=")',
         label: 'text inside double quotes',
-        features: ['Negated character class ([^"]*)', 'Capture group ($1)'],
-        needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        features: [
+          'Positive lookbehind for opening double quote',
+          'Negated character class ([^"\\r\\n]+)',
+          'Positive lookahead ((?="))'
+        ],
+        needsMultiline: true,
+        needsCaseInsensitive: false
       };
     }
-    if (/^(?:single\s+quotes?)$/i.test(container)) {
+    if (/^(?:single\s+(?:quotes?|quotation\s+marks?|quotations?))$/i.test(container)) {
       return {
-        pattern: "'([^']*)'",
+        pattern: "(?<=^(?:[^'\\r\\n]*'[^'\\r\\n]*')*[^'\\r\\n]*')[^'\\r\\n]+(?=')",
         label: 'text inside single quotes',
-        features: ["Negated character class ([^']*)", 'Capture group ($1)'],
-        needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        features: [
+          'Positive lookbehind for opening single quote',
+          "Negated character class ([^'\\r\\n]+)",
+          "Positive lookahead ((?='))"
+        ],
+        needsMultiline: true,
+        needsCaseInsensitive: false
       };
     }
-    if (/^(?:quotes?|quotation\s+marks?)$/i.test(container)) {
+    if (/^(?:backticks?|grave\s+accents?)$/i.test(container)) {
       return {
-        pattern: '["\']([^"\']*)["\']',
+        pattern: '(?<=^(?:[^`\\r\\n]*`[^`\\r\\n]*`)*[^`\\r\\n]*`)[^`\\r\\n]+(?=`)',
+        label: 'text inside backticks',
+        features: [
+          'Positive lookbehind for opening backtick',
+          'Negated character class ([^`\\r\\n]+)',
+          'Positive lookahead ((?=`))'
+        ],
+        needsMultiline: true,
+        needsCaseInsensitive: false
+      };
+    }
+    if (/^(?:quotes?|quotation\s+marks?|quotations?|strings?|quoted\s+strings?)$/i.test(container)) {
+      return {
+        pattern:
+          '(?<=^(?:[^"\\r\\n]*"[^"\\r\\n]*")*[^"\\r\\n]*")[^"\\r\\n]+(?=")|(?<=^(?:[^\'\\r\\n]*\'[^\'\\r\\n]*\')*[^\'\\r\\n]*\')[^\'\\r\\n]+(?=\')',
         label: 'text inside quotes',
-        features: ['Quote class (["\'])', 'Negated character class ([^"\']*)'],
-        needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        features: [
+          'Positive lookbehind for opening quote',
+          'Negated character class ([^"\\r\\n]+)',
+          'Positive lookahead ((?=["\']))'
+        ],
+        needsMultiline: true,
+        needsCaseInsensitive: false
       };
     }
 
@@ -512,13 +577,15 @@ function tryResolveInsideOrBetween(
       const left = resolveDelimiterOrLiteral(betweenPair[1], quotes);
       const right = resolveDelimiterOrLiteral(betweenPair[2], quotes);
       return {
-        pattern: `${left}(.*?)${right}`,
+        pattern: `(?<=${left})[^\\r\\n]+?(?=${right})`,
         label: `text between ${left} and ${right}`,
-        features: ['Lazy quantifier (.*?)', 'Capture group ($1)'],
+        features: [
+          `Positive lookbehind ((?<=${left}))`,
+          'Lazy quantifier ([^\\r\\n]+?)',
+          `Positive lookahead ((?=${right}))`
+        ],
         needsMultiline: false,
-        needsCaseInsensitive: false,
-        defaultReplace: '$1',
-        hasCaptureGroups: true
+        needsCaseInsensitive: false
       };
     }
   }
@@ -628,6 +695,63 @@ function tryResolveAffixOrLineFilter(
       pattern: `\\b[a-zA-Z0-9_]*${lit}[a-zA-Z0-9_]*\\b`,
       label: `words containing ${lit}`,
       features: ['Word boundary (\\b)', 'Substring match'],
+      needsMultiline: false,
+      needsCaseInsensitive: false
+    };
+  }
+
+  // 1b. Strings / quotations starting/ending/containing/not-containing (includes surrounding quotes)
+  const stringStart = phrase.match(
+    /^(?:strings?|quotations?|quoted\s+strings?)\s+(?:that\s+)?(?:start(?:ing)?|begin(?:ning)?)\s+with\s+(.+)$/i
+  );
+  if (stringStart) {
+    const lit = resolveRawLiteralOrCharClass(stringStart[1], quotes);
+    return {
+      pattern: `(?:"${lit}[^"\\r\\n]*"|'${lit}[^'\\r\\n]*')`,
+      label: `quoted strings starting with ${lit}`,
+      features: ['Quoted string literal', `Prefix match (${lit})`],
+      needsMultiline: false,
+      needsCaseInsensitive: false
+    };
+  }
+
+  const stringEnd = phrase.match(
+    /^(?:strings?|quotations?|quoted\s+strings?)\s+(?:that\s+)?end(?:ing)?\s+(?:with|in)\s+(.+)$/i
+  );
+  if (stringEnd) {
+    const lit = resolveRawLiteralOrCharClass(stringEnd[1], quotes);
+    return {
+      pattern: `(?:"[^"\\r\\n]*${lit}"|'[^'\\r\\n]*${lit}')`,
+      label: `quoted strings ending with ${lit}`,
+      features: ['Quoted string literal', `Suffix match (${lit})`],
+      needsMultiline: false,
+      needsCaseInsensitive: false
+    };
+  }
+
+  const stringNotContain = phrase.match(
+    /^(?:strings?|quotations?|quoted\s+strings?)\s+(?:that\s+(?:do\s+not|don't|dont)\s+contain|not\s+containing|without|lacking)\s+(.+)$/i
+  );
+  if (stringNotContain) {
+    const lit = resolveRawLiteralOrCharClass(stringNotContain[1], quotes);
+    return {
+      pattern: `(?:"(?![^"\\r\\n]*${lit})[^"\\r\\n]*"|'(?![^'\\r\\n]*${lit})[^'\\r\\n]*')`,
+      label: `quoted strings not containing ${lit}`,
+      features: ['Quoted string literal', `Negative lookahead ((?![^"]*${lit}))`],
+      needsMultiline: false,
+      needsCaseInsensitive: false
+    };
+  }
+
+  const stringContain = phrase.match(
+    /^(?:strings?|quotations?|quoted\s+strings?)\s+(?:that\s+)?(?:contain(?:ing)?|with|having|that\s+have)\s+(.+)$/i
+  );
+  if (stringContain) {
+    const lit = resolveRawLiteralOrCharClass(stringContain[1], quotes);
+    return {
+      pattern: `(?:"[^"\\r\\n]*${lit}[^"\\r\\n]*"|'[^'\\r\\n]*${lit}[^'\\r\\n]*')`,
+      label: `quoted strings containing ${lit}`,
+      features: ['Quoted string literal', `Substring match (${lit})`],
       needsMultiline: false,
       needsCaseInsensitive: false
     };

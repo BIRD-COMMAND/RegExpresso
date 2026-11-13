@@ -9,7 +9,51 @@
         "kind": "build",
         "isDefault": true
       },
-      "problemMatcher": ["$tsc"]
+      "problemMatcher": [
+        "$tsc"
+      ]
+    },
+    {
+      "label": "Push Release (Patch)",
+      "type": "shell",
+      "command": "if (git status --porcelain) { Write-Host 'ABORTED: Uncommitted changes detected. Commit or stash your work before releasing.' -ForegroundColor Red; exit 1 }; npm version patch; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git push; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; git push --tags",
+      "options": {
+        "shell": {
+          "executable": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command"
+          ]
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build / Install Extension (Antigravity)",
+      "type": "shell",
+      "command": "Get-ChildItem -Filter *.vsix | Remove-Item -Force; npx @vscode/vsce package; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; $vsix = (Get-ChildItem -Filter *.vsix | Select-Object -First 1).FullName; if ($vsix) { antigravity-ide --install-extension \"$vsix\" --force; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } } else { Write-Error 'No .vsix file found after packaging.'; exit 1 }",
+      "options": {
+        "shell": {
+          "executable": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command"
+          ]
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }

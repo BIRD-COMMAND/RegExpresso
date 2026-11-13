@@ -69,24 +69,27 @@ RegExpresso understands both descriptive sentences and concise shorthand command
 | Goal | Conversational English | Power-User Shorthand | Compiled Find | Compiled Replace |
 | :--- | :--- | :--- | :--- | :--- |
 | Replace characters | `"Replace all slashes with tabs"` | `rep slashes with tabs` | `[/\\]` | `\t` |
+| Ensure trailing char | `"Add a semicolon to the end of every line that doesn't have one"` | `ensure trailing ;` | `^([^\r\n]*?\S)(?<!;)([ \t]*)$` | `$1;$2` |
 | Delete trailing chars | `"Delete the last 4 characters of every line"` | `rm last 4 per` | `.{4}$` | *(empty)* |
+| Select inside quotes | `"Select text inside quotation marks"` | `sel between quotes` | `(?<=..."..."...)[^"\r\n]+(?=")\|...` | — |
+| Select full strings | `"Select all quoted string literals"` | `sel strings` / `sel quotations` | `(?:"[^"\r\n]*"\|'[^'\r\n]*')` | — |
 | Select uppercase runs | `"Select all capital letters"` | `sel caps` | `[A-Z]+` | — |
-| Delete quotes | `"Remove all quotation marks"` | `del quotes` | `["']` | *(empty)* |
 | Whole-word replace | `"Change whole words that say cat to dog"` | `rep word cat with dog` | `\bcat\b` | `dog` |
-| Append per line | `"Add a semicolon to the end of every line"` | `app ; per` | `^(.+)$` | `$1;` |
-| Prepend per line | `"Insert // at the start of every line"` | `prep // per` | `^(.+)$` | `//$1` |
 | Capitalize lines | `"Capitalize the very first letter of every line"` | `cap first per` | `^(.)` | `\U$1` |
-| Trim whitespace | `"Remove leading and trailing spaces on every line"` | `trim lines` | `^[ \t]+|[ \t]+$` | *(empty)* |
+| Trim whitespace / blanks | `"Remove leading and trailing spaces"` / `"Delete blank lines"` | `trim lines` / `trim blanks` | `^[ \t]+\|[ \t]+$` / `^\s*\r?\n` | *(empty)* |
 
-### Common Intent Shorthands
+### Common Intent Shorthands & Keywords
 
-- **Find / Select**: `find`, `fnd`, `match`, `select`, `sel`, `get`, `grab` (or omit the verb entirely and just type the target, e.g. `emails`, `urls`, `3 to 5 digits`)
-- **Delete / Remove**: `delete`, `del`, `remove`, `rm`, `strip`, `clear`, `clr`, `trim`
+- **Find / Select**: `find`, `fnd`, `match`, `select`, `sel`, `get`, `grab` (or omit the verb entirely and just type the target, e.g. `emails`, `urls`, `strings`, `3 to 5 digits`)
+- **Delete / Remove**: `delete`, `del`, `remove`, `rm`, `strip`, `clear`, `clr`
+- **Trim**: `trim` (whitespace on both ends), `trim blanks` / `trim empties` (remove blank lines), `trim leading <X>` (e.g. `trim leading zeros`, `trim leading x`), `trim trailing <Y>` (e.g. `trim trailing ;`, `trim trailing commas`)
+- **Ensure (Conditional Insert)**: `ensure trailing ;`, `ensure leading //`, `ensure every line ends with ;`, `ensure a space after commas` (or `add ... without one` / `that doesn't have one`)
 - **Replace / Convert**: `replace`, `rep`, `change`, `chg`, `substitute`, `sub`, `convert`, `turn`, `make`
 - **Insert / Add**: `add`, `insert`, `ins`, `append`, `app`, `prepend`, `prep`, `put`
 - **Wrap / Enclose**: `wrap <X> in <Y>`, `put <Y> around <X>`, `surround <X> with <Y>`
 - **Case Transform**: `capitalize`, `cap`, `uppercase`, `upper`, `lowercase`, `lower`, `make <X> camelCase / snake_case / Title Case`
-- **Line Scope Suffix**: End a positional query with `per`, `per line`, or `per-line` as a fast shorthand for `on every line` / `of each line`.
+- **Positional & Scope Keywords**: `leading <X>` (start of line), `trailing <Y>` (end of line), `per` / `per line` / `per-line` (`on every line`), `after <X>` / `preceded by <X>` (lookbehind), `before <X>` / `followed by <X>` (lookahead).
+- **Inner Content vs. Full Strings**: `select inside quotes` / `select between quotes` selects only the characters *between* the quotation marks, whereas `select strings` / `select quotations` includes the surrounding quotation marks.
 
 ![Structural Reformatting: SCREAMING_SNAKE_CASE to camelCase](.readme_gifs/CaseConvenience.gif)
 
