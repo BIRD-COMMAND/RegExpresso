@@ -2,7 +2,7 @@
 
 RegExpresso is a deterministic, zero-latency natural language to regular expression compiler and multi-caret execution engine for Visual Studio Code.
 
-Unlike AI-assisted tools that send code snippets to remote servers and suffer from network latency or hallucinated syntax, RegExpresso uses a modular, clause-decomposing linguistic parser (`clauseParser` → `targetResolver` → `lexicon` → `nlParser` → `executor`) that compiles queries locally on every keystroke.
+Unlike AI-assisted tools that send code snippets to remote servers and suffer from network latency or hallucinated syntax, RegExpresso uses a modular, pipeline-driven linguistic compiler (`src/grammar/` → `src/parser/` → `src/resolvers/` + `src/lexicon/` → `src/compiler/` → `src/engine/` & `src/executor.ts`) that compiles queries locally on every keystroke.
 
 ---
 

@@ -64,6 +64,9 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node --test out/test/layer1_goldenCorpus.test.js out/test/layer2_combinatorialAndCanaries.test.js out/test/layer3_metamorphicLaws.test.js out/test/layer4_staticCaptureLinter.test.js out/test/layer5_introspectiveAndMutation.test.js out/test/layer6_fuzzingAndRedos.test.js out/test/layer7_vscodeHostAndParity.test.js",
+    "prepackage": "npm test",
     "package": "npx @vscode/vsce package --allow-star-activation"
   },
   "devDependencies": {

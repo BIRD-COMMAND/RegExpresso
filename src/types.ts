@@ -49,3 +49,82 @@ export type ExecutionAction =
   | 'copy-matches'
   | 'open-in-native-find'
   | 'run-workaround';
+
+export type MacroIntentType =
+  | 'FIND'
+  | 'DELETE'
+  | 'REPLACE'
+  | 'WRAP'
+  | 'INSERT_ADD'
+  | 'ENSURE'
+  | 'TRIM'
+  | 'SWAP_REORDER'
+  | 'CASE_TRANSFORM'
+  | 'EXTRACT_CAPTURE';
+
+export type CaseTransformMode =
+  | 'upper'
+  | 'lower'
+  | 'title'
+  | 'capitalize-first'
+  | 'camelCase'
+  | 'PascalCase'
+  | 'snake_case'
+  | 'SCREAMING_SNAKE_CASE'
+  | 'kebab-case';
+
+export interface LookaroundCondition {
+  type: 'preceded-by' | 'not-preceded-by' | 'followed-by' | 'not-followed-by';
+  targetPhrase: string;
+}
+
+export type InsertPosition =
+  | 'start-of-line'
+  | 'end-of-line'
+  | 'before-target'
+  | 'after-target';
+
+export type LocationHint =
+  | 'start-of-line'
+  | 'end-of-line'
+  | 'middle-of-word'
+  | 'whole-word'
+  | 'whole-line';
+
+export interface ParsedQuery {
+  raw: string;
+  intent: MacroIntentType;
+  targetClause: string;
+  replacementClause?: string;
+  insertPosition?: InsertPosition;
+  missingCheck?: boolean;
+  caseTargetMode?: CaseTransformMode;
+  conditions: LookaroundCondition[];
+  exclusionClause?: string;
+  locationHint?: LocationHint;
+  nonGreedyHint?: boolean;
+  flags: {
+    caseInsensitive: boolean;
+    multiline: boolean;
+  };
+  preferredAction?: ExecutionAction;
+  quotes: string[];
+}
+
+export interface TargetResolutionContext {
+  hasCurrencyLookbehind?: boolean;
+  locationHint?: string;
+  isDeleteLineContext?: boolean;
+}
+
+export interface ResolvedTarget {
+  pattern: string;
+  label: string;
+  features: string[];
+  needsMultiline: boolean;
+  needsCaseInsensitive: boolean;
+  defaultReplace?: string;
+  lexiconId?: string;
+  isWholeLine?: boolean;
+  hasCaptureGroups?: boolean;
+}

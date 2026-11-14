@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
-import { parseNaturalLanguageRequest } from './nlParser';
+import { parseNaturalLanguageRequest } from './compiler';
 import {
   executeRegexAction,
   executeWorkaround,
-  findAllMatchesInEditor
+  findAllMatchesInEditor,
+  formatReplacementPreview
 } from './executor';
 import {
   CompiledRegexResult,
   ExecutionAction,
   ImpossibleRegexResult
 } from './types';
+
+export { formatReplacementPreview };
 
 interface ActionQuickPickItem extends vscode.QuickPickItem {
   action: ExecutionAction;
@@ -22,23 +25,6 @@ interface TabUiState {
   queryText: string;
   historyIndex: number;
   draftQuery: string;
-}
-
-/**
- * Formats a replacement string for the inline editor preview decoration (`after.contentText`).
- * Renders tabs (`\t`) as `⇥`, newlines (`\r?\n`) as `↵`, and pure spaces as `·`.
- */
-export function formatReplacementPreview(replacementText: string): string {
-  if (replacementText === '') {
-    return '∅ (deleted)';
-  }
-  const formatted = replacementText
-    .replace(/\r?\n/g, '↵')
-    .replace(/\t/g, '⇥');
-  if (/^ +$/.test(formatted)) {
-    return '·'.repeat(formatted.length);
-  }
-  return formatted;
 }
 
 export function activate(context: vscode.ExtensionContext) {

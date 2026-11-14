@@ -5,130 +5,13 @@ import {
   ImpossibleWorkaround,
   RegexStep
 } from './types';
+import {
+  applyStepToText,
+  evaluateBoostReplacement,
+  formatReplacementPreview
+} from './engine/boostEvaluator';
 
-/**
- * Evaluates VS Code / Boost replacement strings including:
- * - $& (whole match), $$ (literal $)
- * - $1 .. $99 (numbered capture groups)
- * - $<name> (named capture groups)
- * - \n, \r, \t (whitespace escapes)
- * - \u (uppercase next char), \l (lowercase next char)
- * - \U (uppercase until \E or end), \L (lowercase until \E or end), \E (end case block)
- */
-export function evaluateBoostReplacement(
-  replaceTemplate: string,
-  match: RegExpExecArray
-): string {
-  // 1. Expand escape sequences \n, \r, \t
-  let interpolated = replaceTemplate
-    .replace(/\\n/g, '\n')
-    .replace(/\\r/g, '\r')
-    .replace(/\\t/g, '\t');
-
-  // 2. Substitute $$, $&, $<name>, and $1..$99
-  interpolated = interpolated.replace(
-    /\$(?:\$|&|<([^>]+)>|(\d{1,2}))/g,
-    (fullToken, namedGroup?: string, numberedGroup?: string) => {
-      if (fullToken === '$$') return '$';
-      if (fullToken === '$&') return match[0];
-      if (namedGroup !== undefined) {
-        return match.groups?.[namedGroup] ?? '';
-      }
-      if (numberedGroup !== undefined) {
-        const idx = parseInt(numberedGroup, 10);
-        return match[idx] ?? '';
-      }
-      return fullToken;
-    }
-  );
-
-  // 3. Evaluate Boost Case Modifiers (\U, \L, \u, \l, \E)
-  let output = '';
-  let blockMode: 'none' | 'upper' | 'lower' = 'none';
-  let singleCharMode: 'none' | 'upper' | 'lower' = 'none';
-
-  for (let i = 0; i < interpolated.length; i++) {
-    if (interpolated[i] === '\\' && i + 1 < interpolated.length) {
-      const next = interpolated[i + 1];
-      if (next === 'U') {
-        blockMode = 'upper';
-        i++;
-        continue;
-      } else if (next === 'L') {
-        blockMode = 'lower';
-        i++;
-        continue;
-      } else if (next === 'E') {
-        blockMode = 'none';
-        i++;
-        continue;
-      } else if (next === 'u') {
-        singleCharMode = 'upper';
-        i++;
-        continue;
-      } else if (next === 'l') {
-        singleCharMode = 'lower';
-        i++;
-        continue;
-      }
-    }
-
-    let ch = interpolated[i];
-    if (singleCharMode === 'upper') {
-      ch = ch.toUpperCase();
-      singleCharMode = 'none';
-    } else if (singleCharMode === 'lower') {
-      ch = ch.toLowerCase();
-      singleCharMode = 'none';
-    } else if (blockMode === 'upper') {
-      ch = ch.toUpperCase();
-    } else if (blockMode === 'lower') {
-      ch = ch.toLowerCase();
-    }
-
-    output += ch;
-  }
-
-  return output;
-}
-
-/**
- * Applies a single RegexStep to a raw string using our Boost-compatible evaluator.
- */
-export function applyStepToText(text: string, step: RegexStep): { newText: string; matchCount: number } {
-  const flags = step.flags.includes('g') ? step.flags : step.flags + 'g';
-  const regex = new RegExp(step.find, flags);
-  const replaceTemplate = step.replace ?? '$&';
-
-  let matchCount = 0;
-  let lastIndex = 0;
-  let result = '';
-  let match: RegExpExecArray | null;
-
-  while ((match = regex.exec(text)) !== null) {
-    matchCount++;
-    result += text.slice(lastIndex, match.index);
-    result += evaluateBoostReplacement(replaceTemplate, match);
-    lastIndex = match.index + match[0].length;
-
-    // Prevent infinite loop on zero-length matches (e.g., lookarounds at line ends)
-    // Step over CRLF (\r\n) as a 2-char unit so regex.lastIndex never lands between \r and \n.
-    if (match[0].length === 0) {
-      if (regex.lastIndex < text.length) {
-        const stepLen =
-          text[regex.lastIndex] === '\r' && text[regex.lastIndex + 1] === '\n' ? 2 : 1;
-        result += text.slice(regex.lastIndex, regex.lastIndex + stepLen);
-        lastIndex = regex.lastIndex + stepLen;
-        regex.lastIndex += stepLen;
-      } else {
-        regex.lastIndex++;
-      }
-    }
-  }
-
-  result += text.slice(lastIndex);
-  return { newText: result, matchCount };
-}
+export { applyStepToText, evaluateBoostReplacement, formatReplacementPreview };
 
 /**
  * Collects all match ranges and capture group ranges in the active editor.
@@ -156,6 +39,15 @@ export function findAllMatchesInEditor(
   let safetyCounter = 0;
 
   while ((match = regex.exec(fullText)) !== null && safetyCounter < 5000) {
+    if (
+      match[0].length === 0 &&
+      match.index > 0 &&
+      fullText[match.index - 1] === '\r' &&
+      fullText[match.index] === '\n'
+    ) {
+      regex.lastIndex = match.index + 1;
+      continue;
+    }
     safetyCounter++;
     const startPos = doc.positionAt(match.index);
     const endPos = doc.positionAt(match.index + match[0].length);
@@ -212,10 +104,7 @@ export async function executeRegexAction(
       totalMatches += matchCount;
     }
 
-    const fullDocRange = new vscode.Range(
-      doc.positionAt(0),
-      doc.positionAt(fullText.length)
-    );
+    const fullDocRange = new vscode.Range(doc.positionAt(0), doc.positionAt(fullText.length));
 
     await editor.edit((editBuilder) => {
       editBuilder.replace(fullDocRange, currentText);
@@ -231,7 +120,9 @@ export async function executeRegexAction(
   const { fullRanges, group1Ranges, matchTexts } = findAllMatchesInEditor(editor, primaryStep);
 
   if (fullRanges.length === 0 && action !== 'open-in-native-find') {
-    vscode.window.showWarningMessage(`No matches found for /${primaryStep.find}/${primaryStep.flags}`);
+    vscode.window.showWarningMessage(
+      `No matches found for /${primaryStep.find}/${primaryStep.flags}`
+    );
     return;
   }
 
@@ -289,7 +180,7 @@ export async function executeRegexAction(
     case 'extract-to-new-file': {
       const newDoc = await vscode.workspace.openTextDocument({
         content: matchTexts.join('\n'),
-        language: doc.languageId
+        language: 'plaintext'
       });
       await vscode.window.showTextDocument(newDoc, vscode.ViewColumn.Beside);
       break;
@@ -320,7 +211,11 @@ export async function executeWorkaround(
     return;
   }
 
-  if (workaround.actionType === 'sort-then-regex' && workaround.commandId && workaround.followUpStep) {
+  if (
+    workaround.actionType === 'sort-then-regex' &&
+    workaround.commandId &&
+    workaround.followUpStep
+  ) {
     await vscode.commands.executeCommand(workaround.commandId);
     const fullText = editor.document.getText();
     const { newText } = applyStepToText(fullText, workaround.followUpStep);
@@ -333,7 +228,6 @@ export async function executeWorkaround(
   }
 
   if (workaround.actionType === 'custom-script') {
-    // Sequential line numbering workaround
     const doc = editor.document;
     await editor.edit((eb) => {
       for (let i = 0; i < doc.lineCount; i++) {
